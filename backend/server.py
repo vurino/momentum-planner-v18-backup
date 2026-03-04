@@ -35,6 +35,7 @@ class ScheduleSlot(BaseModel):
     end_time: str  # HH:MM format
     group: str = "general"
     order_index: int
+    days: List[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])  # Days when this slot is active
 
 class ScheduleSlotCreate(BaseModel):
     label: str
@@ -43,6 +44,7 @@ class ScheduleSlotCreate(BaseModel):
     end_time: str
     group: str = "general"
     order_index: int
+    days: List[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
 
 class ScheduleSlotUpdate(BaseModel):
     label: Optional[str] = None
@@ -51,6 +53,7 @@ class ScheduleSlotUpdate(BaseModel):
     end_time: Optional[str] = None
     group: Optional[str] = None
     order_index: Optional[int] = None
+    days: Optional[List[str]] = None
 
 class DailyTask(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -64,23 +67,31 @@ class DailyTaskUpdate(BaseModel):
 class BulkSlotsUpdate(BaseModel):
     slots: List[ScheduleSlot]
 
-# Default schedule template
+# Default schedule template - weekdays only for work activities
 DEFAULT_SCHEDULE = [
-    {"label": "Breakfast", "icon": "restaurant", "start_time": "07:00", "end_time": "08:00", "group": "morning", "order_index": 0},
-    {"label": "Morning Focus", "icon": "sunny", "start_time": "08:00", "end_time": "09:00", "group": "morning", "order_index": 1},
-    {"label": "Job Search", "icon": "briefcase", "start_time": "09:00", "end_time": "10:30", "group": "work", "order_index": 2},
-    {"label": "Break", "icon": "cafe", "start_time": "10:30", "end_time": "10:45", "group": "break", "order_index": 3},
-    {"label": "Trading Block 1", "icon": "trending-up", "start_time": "10:45", "end_time": "12:00", "group": "trading", "order_index": 4},
-    {"label": "Trade Review / Journal", "icon": "book", "start_time": "12:00", "end_time": "13:00", "group": "trading", "order_index": 5},
-    {"label": "Workout", "icon": "fitness", "start_time": "13:00", "end_time": "14:00", "group": "health", "order_index": 6},
-    {"label": "Quick meal", "icon": "fast-food", "start_time": "14:00", "end_time": "14:30", "group": "break", "order_index": 7},
-    {"label": "Trading Block 2", "icon": "analytics", "start_time": "14:30", "end_time": "16:00", "group": "trading", "order_index": 8},
-    {"label": "Break", "icon": "cafe", "start_time": "16:00", "end_time": "16:15", "group": "break", "order_index": 9},
-    {"label": "Trading Block 3", "icon": "settings", "start_time": "16:15", "end_time": "17:30", "group": "trading", "order_index": 10},
-    {"label": "Create", "icon": "code", "start_time": "17:30", "end_time": "18:00", "group": "creative", "order_index": 11},
-    {"label": "Dinner + Wind down", "icon": "moon", "start_time": "18:00", "end_time": "21:30", "group": "evening", "order_index": 12},
-    {"label": "Sleep target", "icon": "bed", "start_time": "22:30", "end_time": "23:59", "group": "evening", "order_index": 13},
+    {"label": "Breakfast", "icon": "restaurant", "start_time": "07:00", "end_time": "08:00", "group": "morning", "order_index": 0, "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]},
+    {"label": "Morning Focus", "icon": "sunny", "start_time": "08:00", "end_time": "09:00", "group": "morning", "order_index": 1, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Job Search", "icon": "briefcase", "start_time": "09:00", "end_time": "10:30", "group": "work", "order_index": 2, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Break", "icon": "cafe", "start_time": "10:30", "end_time": "10:45", "group": "break", "order_index": 3, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Trading Block 1", "icon": "trending-up", "start_time": "10:45", "end_time": "12:00", "group": "trading", "order_index": 4, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Trade Review / Journal", "icon": "book", "start_time": "12:00", "end_time": "13:00", "group": "trading", "order_index": 5, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Workout", "icon": "fitness", "start_time": "13:00", "end_time": "14:00", "group": "health", "order_index": 6, "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]},
+    {"label": "Quick meal", "icon": "fast-food", "start_time": "14:00", "end_time": "14:30", "group": "break", "order_index": 7, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Trading Block 2", "icon": "analytics", "start_time": "14:30", "end_time": "16:00", "group": "trading", "order_index": 8, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Break", "icon": "cafe", "start_time": "16:00", "end_time": "16:15", "group": "break", "order_index": 9, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Trading Block 3", "icon": "settings", "start_time": "16:15", "end_time": "17:30", "group": "trading", "order_index": 10, "days": ["mon", "tue", "wed", "thu", "fri"]},
+    {"label": "Create", "icon": "code", "start_time": "17:30", "end_time": "18:00", "group": "creative", "order_index": 11, "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]},
+    {"label": "Dinner + Wind down", "icon": "moon", "start_time": "18:00", "end_time": "21:30", "group": "evening", "order_index": 12, "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]},
+    {"label": "Sleep target", "icon": "bed", "start_time": "22:30", "end_time": "23:59", "group": "evening", "order_index": 13, "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]},
 ]
+
+# Helper to get day of week abbreviation from date string
+def get_day_abbr(date_str: str) -> str:
+    """Convert date string to day abbreviation (mon, tue, etc)"""
+    from datetime import datetime
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    return days[date_obj.weekday()]
 
 
 # Routes
@@ -101,7 +112,14 @@ async def get_schedule_slots():
             await db.schedule_slots.insert_one(slot.model_dump())
         slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
     
-    return [ScheduleSlot(**slot) for slot in slots]
+    # Ensure all slots have the 'days' field (migration for existing data)
+    result = []
+    for slot in slots:
+        if 'days' not in slot:
+            slot['days'] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        result.append(ScheduleSlot(**slot))
+    
+    return result
 
 @api_router.post("/schedule-slots", response_model=ScheduleSlot)
 async def create_schedule_slot(slot_input: ScheduleSlotCreate):
@@ -169,6 +187,7 @@ async def get_daily_tasks(date_str: str):
     
     # If no tasks exist for this date, create from template
     if not tasks:
+        day_abbr = get_day_abbr(date_str)
         slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
         
         # If no slots exist, get defaults
@@ -179,8 +198,11 @@ async def get_daily_tasks(date_str: str):
             slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
         
         for slot in slots:
-            task = DailyTask(date=date_str, slot_id=slot["id"], completed=False)
-            await db.daily_tasks.insert_one(task.model_dump())
+            # Only create task if slot is active for this day of week
+            slot_days = slot.get('days', ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+            if day_abbr in slot_days:
+                task = DailyTask(date=date_str, slot_id=slot["id"], completed=False)
+                await db.daily_tasks.insert_one(task.model_dump())
         
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
     

@@ -2,19 +2,34 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { View, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function TabLayout() {
+  const { isDark, colors } = useTheme();
+
+  const tabBarStyle = {
+    backgroundColor: colors.card,
+    borderTopWidth: 0,
+    height: Platform.OS === 'ios' ? 90 : 70,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+    paddingTop: 10,
+    shadowColor: isDark ? '#000' : '#999',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: isDark ? 0.3 : 0.1,
+    shadowRadius: 8,
+    elevation: 10,
+  };
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: '#ff6a2e',
-        tabBarInactiveTintColor: '#8c96a5',
+        tabBarStyle: tabBarStyle,
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.iconInactive,
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarBackground: () => (
-          <View style={styles.tabBarBackground} />
+          <View style={[styles.tabBarBackground, { backgroundColor: colors.card }]} />
         ),
       }}
     >
@@ -23,7 +38,15 @@ export default function TabLayout() {
         options={{
           title: 'Today',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconContainer : styles.iconContainer}>
+            <View style={[
+              styles.iconContainer,
+              focused && {
+                shadowColor: colors.accent,
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.6,
+                shadowRadius: 8,
+              }
+            ]}>
               <Ionicons name={focused ? 'today' : 'today-outline'} size={24} color={color} />
             </View>
           ),
@@ -34,7 +57,15 @@ export default function TabLayout() {
         options={{
           title: 'History',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconContainer : styles.iconContainer}>
+            <View style={[
+              styles.iconContainer,
+              focused && {
+                shadowColor: colors.accent,
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.6,
+                shadowRadius: 8,
+              }
+            ]}>
               <Ionicons name={focused ? 'calendar' : 'calendar-outline'} size={24} color={color} />
             </View>
           ),
@@ -45,7 +76,15 @@ export default function TabLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconContainer : styles.iconContainer}>
+            <View style={[
+              styles.iconContainer,
+              focused && {
+                shadowColor: colors.accent,
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.6,
+                shadowRadius: 8,
+              }
+            ]}>
               <Ionicons name={focused ? 'settings' : 'settings-outline'} size={24} color={color} />
             </View>
           ),
@@ -56,21 +95,8 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: '#1c2432',
-    borderTopWidth: 0,
-    height: Platform.OS === 'ios' ? 90 : 70,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 10,
-    paddingTop: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
-  },
   tabBarBackground: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#1c2432',
   },
   tabBarLabel: {
     fontSize: 11,
@@ -79,12 +105,5 @@ const styles = StyleSheet.create({
   },
   iconContainer: {
     padding: 4,
-  },
-  activeIconContainer: {
-    padding: 4,
-    shadowColor: '#ff6a2e',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
   },
 });
