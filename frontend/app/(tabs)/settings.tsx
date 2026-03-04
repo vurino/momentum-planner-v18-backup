@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
@@ -13,13 +12,13 @@ import {
   Modal,
   Pressable,
   Dimensions,
-  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
 import { useTheme } from '../../context/ThemeContext';
+import { TimeEditModal } from '../../components/TimeEditModal';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -93,113 +92,6 @@ const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
   return iconMap[iconName] || 'ellipse-outline';
 };
 
-// Time Picker Modal Component
-const TimePickerModal = ({
-  visible,
-  onClose,
-  onSelect,
-  initialTime,
-  isDark,
-  colors,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onSelect: (time: string) => void;
-  initialTime: string;
-  isDark: boolean;
-  colors: any;
-}) => {
-  const [hour, setHour] = useState('09');
-  const [minute, setMinute] = useState('00');
-
-  useEffect(() => {
-    if (initialTime) {
-      const [h, m] = initialTime.split(':');
-      setHour(h || '09');
-      setMinute(m || '00');
-    }
-  }, [initialTime, visible]);
-
-  const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
-  const minutes = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'));
-
-  const handleConfirm = () => {
-    onSelect(`${hour}:${minute}`);
-    onClose();
-  };
-
-  return (
-    <Modal visible={visible} transparent animationType="fade">
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <View style={[styles.timePickerContainer, { backgroundColor: colors.card }]}>
-          <Text style={[styles.timePickerTitle, { color: colors.textPrimary }]}>Select Time</Text>
-          
-          <View style={styles.timePickerRow}>
-            <ScrollView style={styles.timePickerColumn} showsVerticalScrollIndicator={false}>
-              {hours.map((h) => (
-                <TouchableOpacity
-                  key={h}
-                  style={[
-                    styles.timePickerItem,
-                    hour === h && { backgroundColor: colors.accent },
-                  ]}
-                  onPress={() => setHour(h)}
-                >
-                  <Text style={[
-                    styles.timePickerItemText,
-                    { color: colors.textSecondary },
-                    hour === h && { color: '#fff', fontWeight: '700' },
-                  ]}>
-                    {h}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            
-            <Text style={[styles.timePickerSeparator, { color: colors.textPrimary }]}>:</Text>
-            
-            <ScrollView style={styles.timePickerColumn} showsVerticalScrollIndicator={false}>
-              {minutes.map((m) => (
-                <TouchableOpacity
-                  key={m}
-                  style={[
-                    styles.timePickerItem,
-                    minute === m && { backgroundColor: colors.accent },
-                  ]}
-                  onPress={() => setMinute(m)}
-                >
-                  <Text style={[
-                    styles.timePickerItemText,
-                    { color: colors.textSecondary },
-                    minute === m && { color: '#fff', fontWeight: '700' },
-                  ]}>
-                    {m}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-          
-          <View style={styles.timePickerActions}>
-            <TouchableOpacity
-              style={[styles.timePickerButton, { backgroundColor: colors.surface }]}
-              onPress={onClose}
-            >
-              <Text style={[styles.timePickerButtonText, { color: colors.textSecondary }]}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.timePickerButton, { backgroundColor: colors.accent }]}
-              onPress={handleConfirm}
-            >
-              <Text style={[styles.timePickerButtonText, { color: '#fff' }]}>Confirm</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Pressable>
-    </Modal>
-  );
-};
-
 // Icon Picker Modal Component
 const IconPickerModal = ({
   visible,
@@ -267,18 +159,6 @@ const DaySelector = ({
   isDark: boolean;
   colors: any;
 }) => {
-  const allWeekdays = ['mon', 'tue', 'wed', 'thu', 'fri'];
-  const weekend = ['sat', 'sun'];
-  const allDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-  const isAllWeekdays = allWeekdays.every(d => selectedDays.includes(d));
-  const isWeekend = weekend.every(d => selectedDays.includes(d)) && !allWeekdays.some(d => selectedDays.includes(d));
-  const isAllDays = allDays.every(d => selectedDays.includes(d));
-
-  const handleQuickSelect = (type: 'weekdays' | 'weekend' | 'all') => {
-    // This would require a different callback to set all days at once
-  };
-
   return (
     <View style={styles.daySelector}>
       {DAY_OPTIONS.map((day) => {
@@ -356,7 +236,7 @@ const SlotEditor = ({
   onUpdate,
   onDelete,
   onOpenIconPicker,
-  onOpenTimePicker,
+  onOpenTimeEditor,
   dragProps,
   isDark,
   colors,
@@ -365,7 +245,7 @@ const SlotEditor = ({
   onUpdate: (id: string, updates: Partial<ScheduleSlot>) => void;
   onDelete: (id: string) => void;
   onOpenIconPicker: (slotId: string) => void;
-  onOpenTimePicker: (slotId: string, type: 'start' | 'end') => void;
+  onOpenTimeEditor: (slotId: string) => void;
   dragProps: any;
   isDark: boolean;
   colors: any;
@@ -391,6 +271,21 @@ const SlotEditor = ({
     }
     onUpdate(slot.id, { days: newDays });
   };
+
+  // Calculate duration
+  const calculateDuration = (start: string, end: string): string => {
+    const [startH, startM] = start.split(':').map(Number);
+    const [endH, endM] = end.split(':').map(Number);
+    let diff = (endH * 60 + endM) - (startH * 60 + startM);
+    if (diff < 0) diff += 24 * 60;
+    const hours = Math.floor(diff / 60);
+    const mins = diff % 60;
+    if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
+    if (hours > 0) return `${hours}h`;
+    return `${mins}m`;
+  };
+
+  const duration = calculateDuration(slot.start_time, slot.end_time);
 
   return (
     <View style={[styles.slotItem, { backgroundColor: colors.card }, cardShadow]}>
@@ -427,25 +322,19 @@ const SlotEditor = ({
           </TouchableOpacity>
         )}
 
-        <View style={styles.timeRow}>
-          <TouchableOpacity
-            style={[styles.timeButton, { backgroundColor: colors.surface }]}
-            onPress={() => onOpenTimePicker(slot.id, 'start')}
-          >
-            <Text style={[styles.timeButtonText, { color: colors.textSecondary }]}>
-              {slot.start_time}
-            </Text>
-          </TouchableOpacity>
-          <Text style={[styles.timeSeparator, { color: colors.textSecondary }]}>—</Text>
-          <TouchableOpacity
-            style={[styles.timeButton, { backgroundColor: colors.surface }]}
-            onPress={() => onOpenTimePicker(slot.id, 'end')}
-          >
-            <Text style={[styles.timeButtonText, { color: colors.textSecondary }]}>
-              {slot.end_time}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* Time Display - Tap to open dial editor */}
+        <TouchableOpacity
+          style={[styles.timeDisplayButton, { backgroundColor: colors.surface }]}
+          onPress={() => onOpenTimeEditor(slot.id)}
+        >
+          <Ionicons name="time-outline" size={16} color={colors.accent} style={styles.timeIcon} />
+          <Text style={[styles.timeDisplayText, { color: colors.textPrimary }]}>
+            {slot.start_time} — {slot.end_time}
+          </Text>
+          <View style={[styles.durationBadge, { backgroundColor: isDark ? '#2a3344' : '#dde2e8' }]}>
+            <Text style={[styles.durationText, { color: colors.accent }]}>{duration}</Text>
+          </View>
+        </TouchableOpacity>
 
         {/* Day Toggle */}
         <TouchableOpacity
@@ -492,7 +381,7 @@ export default function SettingsScreen() {
   
   // Modal states
   const [iconPickerSlotId, setIconPickerSlotId] = useState<string | null>(null);
-  const [timePickerState, setTimePickerState] = useState<{ slotId: string; type: 'start' | 'end' } | null>(null);
+  const [timeEditorSlotId, setTimeEditorSlotId] = useState<string | null>(null);
 
   const fetchSlots = useCallback(async () => {
     try {
@@ -630,17 +519,15 @@ export default function SettingsScreen() {
     setIconPickerSlotId(null);
   };
 
-  const handleTimeSelect = (time: string) => {
-    if (timePickerState) {
-      const { slotId, type } = timePickerState;
-      const update = type === 'start' ? { start_time: time } : { end_time: time };
-      handleUpdateSlot(slotId, update);
+  const handleTimeSave = (startTime: string, endTime: string) => {
+    if (timeEditorSlotId) {
+      handleUpdateSlot(timeEditorSlotId, { start_time: startTime, end_time: endTime });
     }
-    setTimePickerState(null);
+    setTimeEditorSlotId(null);
   };
 
   const currentSlotForIcon = iconPickerSlotId ? slots.find(s => s.id === iconPickerSlotId) : null;
-  const currentSlotForTime = timePickerState ? slots.find(s => s.id === timePickerState.slotId) : null;
+  const currentSlotForTime = timeEditorSlotId ? slots.find(s => s.id === timeEditorSlotId) : null;
 
   const cardShadow = {
     shadowColor: isDark ? '#000' : '#999',
@@ -657,7 +544,7 @@ export default function SettingsScreen() {
         onUpdate={handleUpdateSlot}
         onDelete={handleDeleteSlot}
         onOpenIconPicker={setIconPickerSlotId}
-        onOpenTimePicker={(slotId, type) => setTimePickerState({ slotId, type })}
+        onOpenTimeEditor={setTimeEditorSlotId}
         dragProps={{ onLongPress: drag, disabled: isActive }}
         isDark={isDark}
         colors={colors}
@@ -784,18 +671,14 @@ export default function SettingsScreen() {
         colors={colors}
       />
 
-      {/* Time Picker Modal */}
-      <TimePickerModal
-        visible={!!timePickerState}
-        onClose={() => setTimePickerState(null)}
-        onSelect={handleTimeSelect}
-        initialTime={
-          currentSlotForTime
-            ? timePickerState?.type === 'start'
-              ? currentSlotForTime.start_time
-              : currentSlotForTime.end_time
-            : '09:00'
-        }
+      {/* Time Edit Modal with Dials */}
+      <TimeEditModal
+        visible={!!timeEditorSlotId}
+        onClose={() => setTimeEditorSlotId(null)}
+        onSave={handleTimeSave}
+        initialStartTime={currentSlotForTime?.start_time || '09:00'}
+        initialEndTime={currentSlotForTime?.end_time || '10:00'}
+        taskLabel={currentSlotForTime?.label}
         isDark={isDark}
         colors={colors}
       />
@@ -906,32 +789,39 @@ const styles = StyleSheet.create({
   slotLabel: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   labelInput: {
     fontSize: 16,
     fontWeight: '600',
     padding: 0,
-    marginBottom: 6,
+    marginBottom: 8,
     borderBottomWidth: 1,
   },
-  timeRow: {
+  timeDisplayButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
     marginBottom: 8,
   },
-  timeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  timeIcon: {
+    marginRight: 8,
+  },
+  timeDisplayText: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  durationBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 8,
   },
-  timeButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  timeSeparator: {
-    fontSize: 13,
-    marginHorizontal: 6,
+  durationText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   daysToggle: {
     flexDirection: 'row',
@@ -1035,58 +925,5 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  timePickerContainer: {
-    width: SCREEN_WIDTH - 60,
-    maxWidth: 320,
-    borderRadius: 20,
-    padding: 20,
-  },
-  timePickerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  timePickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 200,
-  },
-  timePickerColumn: {
-    width: 70,
-    height: 200,
-  },
-  timePickerItem: {
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    marginVertical: 2,
-  },
-  timePickerItemText: {
-    fontSize: 18,
-    fontWeight: '500',
-  },
-  timePickerSeparator: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginHorizontal: 12,
-  },
-  timePickerActions: {
-    flexDirection: 'row',
-    marginTop: 20,
-    gap: 12,
-  },
-  timePickerButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  timePickerButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
   },
 });

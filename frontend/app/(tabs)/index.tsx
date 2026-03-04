@@ -13,9 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 import { format, addDays, subDays } from 'date-fns';
 import { useTheme } from '../../context/ThemeContext';
+import { MomentumDial } from '../../components/MomentumDial';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -68,62 +68,6 @@ const ChromeTitle = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
   );
 };
 
-// Progress Ring Component
-const ProgressRing = ({ 
-  progress, 
-  size = 140, 
-  strokeWidth = 6,
-  colors,
-}: { 
-  progress: number; 
-  size?: number; 
-  strokeWidth?: number;
-  colors: any;
-}) => {
-  const radius = (size - strokeWidth) / 2;
-  const circumference = radius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (progress / 100) * circumference;
-
-  return (
-    <View style={styles.progressRingContainer}>
-      <Svg width={size} height={size}>
-        <Defs>
-          <SvgGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor="#ff6a2e" />
-            <Stop offset="100%" stopColor="#ff3c00" />
-          </SvgGradient>
-        </Defs>
-        {/* Background circle */}
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={colors.surface}
-          strokeWidth={strokeWidth}
-          fill="none"
-        />
-        {/* Progress circle */}
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke="url(#progressGradient)"
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
-      </Svg>
-      <View style={styles.progressTextContainer}>
-        <Text style={[styles.progressPercent, { color: colors.accent }]}>{progress}%</Text>
-        <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>DONE</Text>
-      </View>
-    </View>
-  );
-};
-
 // Icon mapping for Ionicons
 const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
   const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -141,6 +85,10 @@ const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
     'moon': 'moon-outline',
     'bed': 'bed-outline',
     'clock': 'time-outline',
+    'heart': 'heart-outline',
+    'musical-notes': 'musical-notes-outline',
+    'game-controller': 'game-controller-outline',
+    'car': 'car-outline',
   };
   return iconMap[iconName] || 'ellipse-outline';
 };
@@ -354,14 +302,6 @@ export default function TodayScreen() {
 
   const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
 
-  const cardShadow = {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-    elevation: 8,
-  };
-
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -412,16 +352,15 @@ export default function TodayScreen() {
               />
             }
           >
-            {/* Progress Card */}
-            <View style={[
-              styles.progressCard,
-              { backgroundColor: colors.card },
-              cardShadow,
-            ]}>
-              <ProgressRing progress={progress.percentage} colors={colors} />
-              <Text style={[styles.progressSummary, { color: colors.textSecondary }]}>
-                {progress.completed} of {progress.total} activities completed
-              </Text>
+            {/* Momentum Dial - Large Progress Indicator */}
+            <View style={styles.momentumContainer}>
+              <MomentumDial
+                completed={progress.completed}
+                total={progress.total}
+                size={200}
+                isDark={isDark}
+                colors={colors}
+              />
             </View>
 
             {/* Tasks List */}
@@ -522,34 +461,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
-  progressCard: {
-    borderRadius: 20,
-    padding: 24,
+  momentumContainer: {
     alignItems: 'center',
-    marginBottom: 20,
-  },
-  progressRingContainer: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressTextContainer: {
-    position: 'absolute',
-    alignItems: 'center',
-  },
-  progressPercent: {
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  progressLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 1,
-    marginTop: 2,
-  },
-  progressSummary: {
-    fontSize: 14,
-    marginTop: 16,
+    marginVertical: 20,
   },
   tasksSection: {
     marginTop: 8,
