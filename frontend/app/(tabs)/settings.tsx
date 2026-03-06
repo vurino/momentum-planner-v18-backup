@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,9 @@ import {
   Modal,
   Pressable,
   Dimensions,
+  ScrollView,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +37,19 @@ interface ScheduleSlot {
   days: string[];
 }
 
+// Day options for the wheel selector
+const DAY_OPTIONS = [
+  { key: 'weekdays', label: 'Weekdays', days: ['mon', 'tue', 'wed', 'thu', 'fri'] },
+  { key: 'weekends', label: 'Weekends', days: ['sat', 'sun'] },
+  { key: 'mon', label: 'Monday', days: ['mon'] },
+  { key: 'tue', label: 'Tuesday', days: ['tue'] },
+  { key: 'wed', label: 'Wednesday', days: ['wed'] },
+  { key: 'thu', label: 'Thursday', days: ['thu'] },
+  { key: 'fri', label: 'Friday', days: ['fri'] },
+  { key: 'sat', label: 'Saturday', days: ['sat'] },
+  { key: 'sun', label: 'Sunday', days: ['sun'] },
+];
+
 // Icon options for picker
 const ICON_OPTIONS = [
   { name: 'restaurant', label: 'Food' },
@@ -54,17 +70,6 @@ const ICON_OPTIONS = [
   { name: 'musical-notes', label: 'Music' },
   { name: 'game-controller', label: 'Gaming' },
   { name: 'car', label: 'Travel' },
-];
-
-// Day options
-const DAY_OPTIONS = [
-  { key: 'mon', label: 'Mon' },
-  { key: 'tue', label: 'Tue' },
-  { key: 'wed', label: 'Wed' },
-  { key: 'thu', label: 'Thu' },
-  { key: 'fri', label: 'Fri' },
-  { key: 'sat', label: 'Sat' },
-  { key: 'sun', label: 'Sun' },
 ];
 
 // Icon mapping for Ionicons
@@ -90,6 +95,123 @@ const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
     'car': 'car-outline',
   };
   return iconMap[iconName] || 'ellipse-outline';
+};
+
+// Day Wheel Selector Component
+const WHEEL_ITEM_HEIGHT = 44;
+
+const DayWheelSelector = ({
+  selectedDays,
+  onSelectDays,
+  isDark,
+  colors,
+}: {
+  selectedDays: string[];
+  onSelectDays: (days: string[], key: string) => void;
+  isDark: boolean;
+  colors: any;
+}) => {
+  const scrollViewRef = useRef<ScrollView>(null);
+  
+  // Find current selection
+  const getCurrentIndex = () => {
+    for (let i = 0; i < DAY_OPTIONS.length; i++) {
+      const opt = DAY_OPTIONS[i];
+      if (opt.days.length === selectedDays.length && 
+          opt.days.every(d => selectedDays.includes(d))) {
+        return i;
+      }
+    }
+    return 0; // Default to weekdays
+  };
+
+  const [selectedIndex, setSelectedIndex] = useState(getCurrentIndex());
+
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({
+        y: selectedIndex * WHEEL_ITEM_HEIGHT,
+        animated: false,
+      });
+    }, 100);
+  }, []);
+
+  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const index = Math.round(y / WHEEL_ITEM_HEIGHT);
+    if (index >= 0 && index < DAY_OPTIONS.length) {
+      setSelectedIndex(index);
+      onSelectDays(DAY_OPTIONS[index].days, DAY_OPTIONS[index].key);
+      scrollViewRef.current?.scrollTo({
+        y: index * WHEEL_ITEM_HEIGHT,
+        animated: true,
+      });
+    }
+  };
+
+  const cardShadow = {
+    shadowColor: isDark ? '#000' : '#999',
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: isDark ? 0.4 : 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  };
+
+  return (
+    <View style={[styles.dayWheelContainer, { backgroundColor: colors.card }, cardShadow]}>
+      <Text style={[styles.dayWheelLabel, { color: colors.textSecondary }]}>
+        SCHEDULE FOR
+      </Text>
+      <View style={styles.wheelWrapper}>
+        {/* Selection indicator */}
+        <View style={[
+          styles.wheelSelectionIndicator,
+          { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }
+        ]} />
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.dayWheel}
+          showsVerticalScrollIndicator={false}
+          snapToInterval={WHEEL_ITEM_HEIGHT}
+          decelerationRate="fast"
+          onMomentumScrollEnd={handleMomentumScrollEnd}
+          contentContainerStyle={{ paddingVertical: WHEEL_ITEM_HEIGHT * 2 }}
+        >
+          {DAY_OPTIONS.map((option, index) => {
+            const isSelected = index === selectedIndex;
+            const distance = Math.abs(index - selectedIndex);
+            const opacity = distance === 0 ? 1 : distance === 1 ? 0.5 : 0.2;
+
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.dayWheelItem, { height: WHEEL_ITEM_HEIGHT }]}
+                onPress={() => {
+                  setSelectedIndex(index);
+                  onSelectDays(option.days, option.key);
+                  scrollViewRef.current?.scrollTo({
+                    y: index * WHEEL_ITEM_HEIGHT,
+                    animated: true,
+                  });
+                }}
+              >
+                <Text style={[
+                  styles.dayWheelItemText,
+                  {
+                    color: isSelected ? colors.accent : colors.textSecondary,
+                    fontWeight: isSelected ? '700' : '400',
+                    opacity,
+                  }
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </View>
+  );
 };
 
 // Icon Picker Modal Component
@@ -147,46 +269,6 @@ const IconPickerModal = ({
   );
 };
 
-// Day Selector Component
-const DaySelector = ({
-  selectedDays,
-  onToggleDay,
-  isDark,
-  colors,
-}: {
-  selectedDays: string[];
-  onToggleDay: (day: string) => void;
-  isDark: boolean;
-  colors: any;
-}) => {
-  return (
-    <View style={styles.daySelector}>
-      {DAY_OPTIONS.map((day) => {
-        const isSelected = selectedDays.includes(day.key);
-        return (
-          <TouchableOpacity
-            key={day.key}
-            style={[
-              styles.dayChip,
-              { backgroundColor: colors.surface },
-              isSelected && { backgroundColor: colors.accent },
-            ]}
-            onPress={() => onToggleDay(day.key)}
-          >
-            <Text style={[
-              styles.dayChipText,
-              { color: colors.textSecondary },
-              isSelected && { color: '#fff', fontWeight: '600' },
-            ]}>
-              {day.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-};
-
 // Neumorphic Toggle Switch
 const NeumorphicSwitch = ({
   value,
@@ -204,12 +286,6 @@ const NeumorphicSwitch = ({
       style={[
         styles.neumorphicSwitch,
         { backgroundColor: value ? colors.accent : colors.surface },
-        {
-          shadowColor: isDark ? '#000' : '#999',
-          shadowOffset: { width: 3, height: 3 },
-          shadowOpacity: isDark ? 0.5 : 0.1,
-          shadowRadius: 6,
-        },
       ]}
       onPress={() => onValueChange(!value)}
     >
@@ -218,19 +294,13 @@ const NeumorphicSwitch = ({
           styles.switchThumb,
           { backgroundColor: colors.card },
           value ? { marginLeft: 24 } : { marginLeft: 2 },
-          {
-            shadowColor: isDark ? '#000' : '#999',
-            shadowOffset: { width: 2, height: 2 },
-            shadowOpacity: isDark ? 0.4 : 0.15,
-            shadowRadius: 4,
-          },
         ]}
       />
     </Pressable>
   );
 };
 
-// Slot Editor Component
+// Slot Editor Component (simplified - no individual day selection)
 const SlotEditor = ({
   slot,
   onUpdate,
@@ -251,25 +321,13 @@ const SlotEditor = ({
   colors: any;
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [showDays, setShowDays] = useState(false);
 
   const cardShadow = {
     shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-    elevation: 8,
-  };
-
-  const handleToggleDay = (day: string) => {
-    const currentDays = slot.days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-    let newDays: string[];
-    if (currentDays.includes(day)) {
-      newDays = currentDays.filter(d => d !== day);
-    } else {
-      newDays = [...currentDays, day];
-    }
-    onUpdate(slot.id, { days: newDays });
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: isDark ? 0.4 : 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   };
 
   // Calculate duration
@@ -322,43 +380,19 @@ const SlotEditor = ({
           </TouchableOpacity>
         )}
 
-        {/* Time Display - Tap to open dial editor */}
+        {/* Time Display - Tap to open time editor */}
         <TouchableOpacity
           style={[styles.timeDisplayButton, { backgroundColor: colors.surface }]}
           onPress={() => onOpenTimeEditor(slot.id)}
         >
-          <Ionicons name="time-outline" size={16} color={colors.accent} style={styles.timeIcon} />
+          <Ionicons name="time-outline" size={14} color={colors.accent} style={styles.timeIcon} />
           <Text style={[styles.timeDisplayText, { color: colors.textPrimary }]}>
             {slot.start_time} — {slot.end_time}
           </Text>
-          <View style={[styles.durationBadge, { backgroundColor: isDark ? '#2a3344' : '#dde2e8' }]}>
+          <View style={[styles.durationBadge, { backgroundColor: isDark ? '#1a2230' : '#e8e2d8' }]}>
             <Text style={[styles.durationText, { color: colors.accent }]}>{duration}</Text>
           </View>
         </TouchableOpacity>
-
-        {/* Day Toggle */}
-        <TouchableOpacity
-          style={styles.daysToggle}
-          onPress={() => setShowDays(!showDays)}
-        >
-          <Text style={[styles.daysToggleText, { color: colors.accent }]}>
-            {showDays ? 'Hide days' : `${slot.days?.length || 7} days`}
-          </Text>
-          <Ionicons
-            name={showDays ? 'chevron-up' : 'chevron-down'}
-            size={16}
-            color={colors.accent}
-          />
-        </TouchableOpacity>
-
-        {showDays && (
-          <DaySelector
-            selectedDays={slot.days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']}
-            onToggleDay={handleToggleDay}
-            isDark={isDark}
-            colors={colors}
-          />
-        )}
       </View>
 
       {/* Delete Button */}
@@ -378,6 +412,7 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [selectedDayFilter, setSelectedDayFilter] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
   
   // Modal states
   const [iconPickerSlotId, setIconPickerSlotId] = useState<string | null>(null);
@@ -387,7 +422,6 @@ export default function SettingsScreen() {
     try {
       const res = await fetch(`${API_URL}/api/schedule-slots`);
       const data = await res.json();
-      // Ensure all slots have days property
       const slotsWithDays = data.map((slot: ScheduleSlot) => ({
         ...slot,
         days: slot.days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
@@ -439,7 +473,7 @@ export default function SettingsScreen() {
       end_time: '10:00',
       group: 'general',
       order_index: slots.length,
-      days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+      days: selectedDayFilter, // Use current day filter
     };
     setSlots(prev => [...prev, newSlot]);
     setHasChanges(true);
@@ -451,6 +485,17 @@ export default function SettingsScreen() {
       order_index: index,
     }));
     setSlots(reorderedData);
+    setHasChanges(true);
+  };
+
+  // Apply day filter to all slots
+  const handleDayFilterChange = (days: string[], key: string) => {
+    setSelectedDayFilter(days);
+    // Update all slots with the new days
+    setSlots(prev => prev.map(slot => ({
+      ...slot,
+      days: days,
+    })));
     setHasChanges(true);
   };
 
@@ -531,10 +576,10 @@ export default function SettingsScreen() {
 
   const cardShadow = {
     shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: isDark ? 0.4 : 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   };
 
   const renderItem = ({ item, drag, isActive }: RenderItemParams<ScheduleSlot>) => (
@@ -566,7 +611,7 @@ export default function SettingsScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>Settings</Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Customize your schedule template</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Customize your schedule</Text>
           </View>
 
           {/* Theme Toggle */}
@@ -574,15 +619,12 @@ export default function SettingsScreen() {
             <View style={styles.themeToggleContent}>
               <Ionicons
                 name={isDark ? 'moon' : 'sunny'}
-                size={24}
+                size={22}
                 color={colors.accent}
               />
               <View style={styles.themeToggleText}>
                 <Text style={[styles.themeToggleLabel, { color: colors.textPrimary }]}>
                   {isDark ? 'Dark Mode' : 'Light Mode'}
-                </Text>
-                <Text style={[styles.themeToggleSubtext, { color: colors.textSecondary }]}>
-                  Toggle appearance
                 </Text>
               </View>
             </View>
@@ -594,6 +636,14 @@ export default function SettingsScreen() {
             />
           </View>
 
+          {/* Day Wheel Selector */}
+          <DayWheelSelector
+            selectedDays={selectedDayFilter}
+            onSelectDays={handleDayFilterChange}
+            isDark={isDark}
+            colors={colors}
+          />
+
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={colors.accent} />
@@ -602,7 +652,8 @@ export default function SettingsScreen() {
             <>
               {/* Schedule List */}
               <View style={styles.listContainer}>
-                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Schedule Template</Text>
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
+                <Text style={[styles.sectionHint, { color: colors.textSecondary }]}>Long press to drag & reorder</Text>
                 <DraggableFlatList
                   data={slots}
                   keyExtractor={(item) => item.id}
@@ -618,27 +669,26 @@ export default function SettingsScreen() {
                 style={[styles.addButton, { backgroundColor: colors.card, borderColor: colors.surface }]}
                 onPress={handleAddSlot}
               >
-                <Ionicons name="add" size={24} color={colors.textPrimary} />
+                <Ionicons name="add" size={22} color={colors.textPrimary} />
                 <Text style={[styles.addButtonText, { color: colors.textSecondary }]}>Add Activity</Text>
               </TouchableOpacity>
 
               {/* Action Buttons */}
               <View style={styles.actionButtons}>
                 <TouchableOpacity
-                  style={[styles.actionButton, styles.resetButton, { backgroundColor: colors.surface }, cardShadow]}
+                  style={[styles.actionButton, { backgroundColor: colors.surface }, cardShadow]}
                   onPress={handleReset}
                 >
-                  <Ionicons name="refresh" size={20} color={colors.textSecondary} />
-                  <Text style={[styles.resetButtonText, { color: colors.textSecondary }]}>Reset</Text>
+                  <Ionicons name="refresh" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.actionButtonText, { color: colors.textSecondary }]}>Reset</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[
                     styles.actionButton,
-                    styles.saveButton,
                     { backgroundColor: hasChanges ? colors.accent : colors.surface },
                     cardShadow,
-                    hasChanges && { shadowColor: colors.accent, shadowOpacity: 0.4 },
+                    hasChanges && { shadowColor: colors.accent, shadowOpacity: 0.3 },
                   ]}
                   onPress={handleSave}
                   disabled={!hasChanges || saving}
@@ -647,9 +697,9 @@ export default function SettingsScreen() {
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <>
-                      <Ionicons name="checkmark" size={20} color={hasChanges ? '#fff' : colors.textSecondary} />
+                      <Ionicons name="checkmark" size={18} color={hasChanges ? '#fff' : colors.textSecondary} />
                       <Text style={[
-                        styles.saveButtonText,
+                        styles.actionButtonText,
                         { color: hasChanges ? '#fff' : colors.textSecondary }
                       ]}>Save</Text>
                     </>
@@ -671,7 +721,7 @@ export default function SettingsScreen() {
         colors={colors}
       />
 
-      {/* Time Edit Modal with Dials */}
+      {/* Time Edit Modal */}
       <TimeEditModal
         visible={!!timeEditorSlotId}
         onClose={() => setTimeEditorSlotId(null)}
@@ -699,25 +749,25 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 12,
+    paddingBottom: 10,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 2,
   },
   themeToggleCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 16,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 14,
   },
   themeToggleContent: {
     flexDirection: 'row',
@@ -727,30 +777,67 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   themeToggleLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
-  themeToggleSubtext: {
-    fontSize: 12,
-    marginTop: 2,
-  },
   neumorphicSwitch: {
-    width: 52,
-    height: 28,
-    borderRadius: 14,
+    width: 50,
+    height: 26,
+    borderRadius: 13,
     flexDirection: 'row',
     alignItems: 'center',
   },
   switchThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
+  dayWheelContainer: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  dayWheelLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  wheelWrapper: {
+    height: WHEEL_ITEM_HEIGHT * 5,
+    width: '100%',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  wheelSelectionIndicator: {
+    position: 'absolute',
+    top: WHEEL_ITEM_HEIGHT * 2,
+    left: 0,
+    right: 0,
+    height: WHEEL_ITEM_HEIGHT,
+    borderRadius: 10,
+    zIndex: -1,
+  },
+  dayWheel: {
+    flex: 1,
+  },
+  dayWheelItem: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayWheelItemText: {
+    fontSize: 18,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 12,
-    paddingHorizontal: 4,
+    marginBottom: 2,
+  },
+  sectionHint: {
+    fontSize: 11,
+    marginBottom: 10,
   },
   loadingContainer: {
     flex: 1,
@@ -762,137 +849,104 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   listContent: {
-    paddingBottom: 20,
+    paddingBottom: 10,
   },
   slotItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
+    alignItems: 'center',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
   },
   dragHandle: {
-    padding: 8,
-    marginRight: 8,
+    padding: 6,
+    marginRight: 6,
   },
   iconSelector: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   slotContent: {
     flex: 1,
   },
   slotLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   labelInput: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     padding: 0,
-    marginBottom: 8,
+    marginBottom: 6,
     borderBottomWidth: 1,
   },
   timeDisplayButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   timeIcon: {
-    marginRight: 8,
+    marginRight: 6,
   },
   timeDisplayText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
     flex: 1,
   },
   durationBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   durationText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
   },
-  daysToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  daysToggleText: {
-    fontSize: 13,
-    fontWeight: '500',
-    marginRight: 4,
-  },
-  daySelector: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 8,
-    gap: 6,
-  },
-  dayChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  dayChipText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
   deleteButton: {
-    padding: 10,
-    marginLeft: 8,
+    padding: 8,
+    marginLeft: 6,
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderStyle: 'dashed',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   addButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   actionButtons: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 16,
-    gap: 12,
+    paddingBottom: Platform.OS === 'ios' ? 16 : 12,
+    gap: 10,
   },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
   },
-  resetButton: {},
-  resetButtonText: {
-    fontSize: 16,
+  actionButtonText: {
+    fontSize: 15,
     fontWeight: '600',
-    marginLeft: 8,
-  },
-  saveButton: {},
-  saveButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   // Modal styles
   modalOverlay: {
@@ -903,26 +957,26 @@ const styles = StyleSheet.create({
   },
   iconPickerModal: {
     width: SCREEN_WIDTH - 40,
-    maxWidth: 360,
-    borderRadius: 20,
-    padding: 20,
+    maxWidth: 340,
+    borderRadius: 18,
+    padding: 18,
   },
   iconPickerTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   iconGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
   },
   iconOptionModal: {
-    width: 50,
-    height: 50,
-    borderRadius: 14,
+    width: 46,
+    height: 46,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

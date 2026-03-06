@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Dark Mode Colors (NeuroDark)
+// Dark Mode Colors (NeuroDark) - Cards at 50% shade
 const DARK_COLORS = {
-  bgGradient: ['#0f141a', '#151c24', '#1b2430'] as const,
-  card: '#1c2432',
-  surface: '#232c3d',
+  bgGradient: ['#0a0e12', '#0f141a', '#141a22'] as const,
+  card: '#141a22', // Darker - 50% shade
+  surface: '#1a2230',
   accent: '#ff6a2e',
   accentSecondary: '#ff5a1f',
   accentTertiary: '#ff3c00',
@@ -17,18 +17,23 @@ const DARK_COLORS = {
   successGlow: 'rgba(74, 222, 128, 0.3)',
   danger: '#ef4444',
   // Neumorphic shadows for dark mode
-  shadowLight: 'rgba(255,255,255,0.05)',
-  shadowDark: 'rgba(0,0,0,0.55)',
-  // Chrome title colors
-  chromeGradient: ['#f5f7fa', '#d1d7df', '#aab2bd', '#e6ecf2'] as const,
-  titleBg: '#161b22',
+  shadowLight: 'rgba(255,255,255,0.03)',
+  shadowDark: 'rgba(0,0,0,0.6)',
+  // Logo colors - light gray
+  logoText: '#9ca3af',
+  titleBg: '#0f141a',
+  // Progress colors
+  progressEmpty: '#2a3344',
+  progressLow: '#60a5fa', // Blue for early progress
+  progressMid: '#f59e0b', // Orange/amber for mid progress
+  progressHigh: '#22c55e', // Green for high progress
 };
 
-// Light Mode Colors
+// Light Mode Colors - Using very light beige instead of white
 const LIGHT_COLORS = {
-  bgGradient: ['#eef1f6', '#e6ebf2', '#dfe5ed'] as const,
-  card: '#f4f6fa',
-  surface: '#e9edf3',
+  bgGradient: ['#f5f2eb', '#efe9e0', '#e8e2d8'] as const, // Light beige gradient
+  card: '#f8f5ee', // Light beige card
+  surface: '#efe9e0',
   accent: '#ff6a2e',
   accentSecondary: '#ff5a1f',
   accentTertiary: '#ff3c00',
@@ -41,10 +46,15 @@ const LIGHT_COLORS = {
   danger: '#ef4444',
   // Neumorphic shadows for light mode
   shadowLight: 'rgba(255,255,255,0.9)',
-  shadowDark: 'rgba(0,0,0,0.12)',
-  // Chrome title colors
-  chromeGradient: ['#8c96a5', '#6f7b8c', '#5a6472', '#7a8494'] as const,
-  titleBg: '#dfe5ed',
+  shadowDark: 'rgba(0,0,0,0.1)',
+  // Logo colors
+  logoText: '#6b7280',
+  titleBg: '#e8e2d8',
+  // Progress colors
+  progressEmpty: '#d5d0c5',
+  progressLow: '#3b82f6',
+  progressMid: '#f59e0b',
+  progressHigh: '#22c55e',
 };
 
 export type ThemeColors = typeof DARK_COLORS;
@@ -105,22 +115,10 @@ export function useTheme() {
   return context;
 }
 
-// Helper to get neumorphic shadow styles based on theme
-export function getNeumorphicShadow(isDark: boolean, colors: ThemeColors) {
-  return {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-    elevation: 8,
-  };
-}
-
-export function getNeumorphicInset(isDark: boolean, colors: ThemeColors) {
-  return {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: isDark ? 0.6 : 0.15,
-    shadowRadius: 10,
-  };
+// Helper to get progress color based on percentage
+export function getProgressColor(percentage: number, colors: ThemeColors): string {
+  if (percentage === 0) return colors.progressEmpty;
+  if (percentage < 25) return colors.progressLow;
+  if (percentage < 75) return colors.progressMid;
+  return colors.progressHigh;
 }

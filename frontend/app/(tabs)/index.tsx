@@ -7,15 +7,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  Platform,
   Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons'
 import { LinearGradient } from 'expo-linear-gradient';
-import { format, addDays, subDays } from 'date-fns';
+import { format, addDays, subDays, getDay } from 'date-fns';
 import { useTheme } from '../../context/ThemeContext';
-import { MomentumDial } from '../../components/MomentumDial';
+import { ProgressCard } from '../../components/ProgressCard';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -47,23 +46,13 @@ interface ProgressData {
   percentage: number;
 }
 
-// Chrome Title Component
-const ChromeTitle = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
+// Logo Component - Light gray text
+const Logo = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
   return (
-    <View style={[styles.chromeTitleContainer, { backgroundColor: isDark ? '#161b22' : '#dfe5ed' }]}>
-      <Text style={[
-        styles.chromeTitle,
-        {
-          color: isDark ? '#f5f7fa' : '#5a6472',
-          textShadowColor: 'rgba(0,0,0,0.45)',
-          textShadowOffset: { width: 0, height: 2 },
-          textShadowRadius: 4,
-        }
-      ]}>
+    <View style={[styles.logoContainer, { backgroundColor: colors.titleBg }]}>
+      <Text style={[styles.logoText, { color: colors.logoText }]}>
         Momentum Planner
       </Text>
-      {/* Glossy highlight effect */}
-      <View style={styles.chromeHighlight} />
     </View>
   );
 };
@@ -98,14 +87,12 @@ const EmbossedButton = ({
   onPress, 
   children, 
   style,
-  isActive = false,
   isDark,
   colors,
 }: { 
   onPress: () => void; 
   children: React.ReactNode; 
   style?: any;
-  isActive?: boolean;
   isDark: boolean;
   colors: any;
 }) => {
@@ -113,14 +100,14 @@ const EmbossedButton = ({
 
   const buttonShadow = isPressed ? {
     shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: isDark ? 0.6 : 0.15,
-    shadowRadius: 4,
+    shadowOffset: { width: 1, height: 1 },
+    shadowOpacity: isDark ? 0.4 : 0.1,
+    shadowRadius: 2,
   } : {
     shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: isDark ? 0.4 : 0.1,
+    shadowRadius: 8,
   };
 
   return (
@@ -132,10 +119,6 @@ const EmbossedButton = ({
         styles.embossedButton,
         { backgroundColor: colors.card },
         buttonShadow,
-        isActive && { 
-          shadowColor: colors.accent,
-          shadowOpacity: 0.4,
-        },
         isPressed && styles.embossedButtonPressed,
         style,
       ]}
@@ -161,10 +144,10 @@ const TaskItem = ({
 
   const cardShadow = {
     shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: isDark ? 0.4 : 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   };
 
   return (
@@ -177,7 +160,7 @@ const TaskItem = ({
           borderColor: colors.success,
           borderWidth: 1,
           shadowColor: colors.success,
-          shadowOpacity: isDark ? 0.3 : 0.2,
+          shadowOpacity: isDark ? 0.2 : 0.15,
         },
       ]}
       onPress={() => onToggle(task.id, !task.completed)}
@@ -189,14 +172,14 @@ const TaskItem = ({
         isCompleted && { backgroundColor: colors.success, borderColor: colors.success },
       ]}>
         {isCompleted && (
-          <Ionicons name="checkmark" size={16} color={isDark ? '#0f141a' : '#fff'} />
+          <Ionicons name="checkmark" size={16} color={isDark ? '#0a0e12' : '#fff'} />
         )}
       </View>
       
       <View style={[
         styles.taskIconContainer,
         { backgroundColor: colors.surface },
-        isCompleted && { backgroundColor: `${colors.success}25` },
+        isCompleted && { backgroundColor: `${colors.success}20` },
       ]}>
         <Ionicons 
           name={getIconName(task.slot.icon)} 
@@ -221,6 +204,12 @@ const TaskItem = ({
   );
 };
 
+// Get day type based on day of week
+const getDayType = (date: Date): string => {
+  const day = getDay(date);
+  return day === 0 || day === 6 ? 'Weekend' : 'Weekday';
+};
+
 export default function TodayScreen() {
   const { isDark, colors } = useTheme();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -231,6 +220,8 @@ export default function TodayScreen() {
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
 
   const dateStr = format(currentDate, 'yyyy-MM-dd');
+  const dayName = format(currentDate, 'EEEE');
+  const dayType = getDayType(currentDate);
 
   const fetchData = useCallback(async () => {
     try {
@@ -309,21 +300,21 @@ export default function TodayScreen() {
         style={StyleSheet.absoluteFillObject}
       />
       <SafeAreaView style={styles.safeArea}>
-        {/* Chrome Title Header */}
-        <ChromeTitle isDark={isDark} colors={colors} />
-        <Text style={[styles.appSubtitle, { color: colors.textSecondary }]}>
+        {/* Logo */}
+        <Logo isDark={isDark} colors={colors} />
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
           Stay consistent, stay focused
         </Text>
 
         {/* Date Navigation */}
         <View style={styles.dateNav}>
           <EmbossedButton onPress={goToPrevDay} isDark={isDark} colors={colors}>
-            <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+            <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
           </EmbossedButton>
           
           <View style={styles.dateCenter}>
             <Text style={[styles.dateLabel, { color: colors.textPrimary }]}>
-              {isToday ? 'Today' : format(currentDate, 'EEEE')}
+              {isToday ? 'Today' : dayName}
             </Text>
             <Text style={[styles.dateText, { color: colors.textSecondary }]}>
               {format(currentDate, 'MMMM d, yyyy')}
@@ -331,7 +322,7 @@ export default function TodayScreen() {
           </View>
           
           <EmbossedButton onPress={goToNextDay} isDark={isDark} colors={colors}>
-            <Ionicons name="chevron-forward" size={24} color={colors.textSecondary} />
+            <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
           </EmbossedButton>
         </View>
 
@@ -352,16 +343,15 @@ export default function TodayScreen() {
               />
             }
           >
-            {/* Momentum Dial - Large Progress Indicator */}
-            <View style={styles.momentumContainer}>
-              <MomentumDial
-                completed={progress.completed}
-                total={progress.total}
-                size={200}
-                isDark={isDark}
-                colors={colors}
-              />
-            </View>
+            {/* Progress Card */}
+            <ProgressCard
+              completed={progress.completed}
+              total={progress.total}
+              dayName={dayName}
+              dayType={dayType}
+              isDark={isDark}
+              colors={colors}
+            />
 
             {/* Tasks List */}
             <View style={styles.tasksSection}>
@@ -390,33 +380,21 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  chromeTitleContainer: {
+  logoContainer: {
     marginHorizontal: 20,
     marginTop: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     borderRadius: 14,
-    position: 'relative',
-    overflow: 'hidden',
   },
-  chromeTitle: {
-    fontSize: 28,
-    fontWeight: '800',
+  logoText: {
+    fontSize: 26,
+    fontWeight: '700',
     letterSpacing: -0.5,
     textAlign: 'center',
   },
-  chromeHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-  },
-  appSubtitle: {
-    fontSize: 14,
+  subtitle: {
+    fontSize: 13,
     marginTop: 8,
     textAlign: 'center',
     marginBottom: 8,
@@ -426,12 +404,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   embossedButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -442,11 +420,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dateLabel: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
   },
   dateText: {
-    fontSize: 14,
+    fontSize: 13,
     marginTop: 2,
   },
   loadingContainer: {
@@ -458,41 +436,37 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
     paddingBottom: 20,
-  },
-  momentumContainer: {
-    alignItems: 'center',
-    marginVertical: 20,
   },
   tasksSection: {
     marginTop: 8,
+    paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   taskItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 7,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   taskIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -501,11 +475,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   taskLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   taskTime: {
-    fontSize: 13,
+    fontSize: 12,
   },
 });
