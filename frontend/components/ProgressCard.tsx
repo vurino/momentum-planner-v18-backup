@@ -11,8 +11,6 @@ import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-na
 interface ProgressCardProps {
   completed: number;
   total: number;
-  dayName: string;
-  dayType: string;
   isDark: boolean;
   colors: any;
 }
@@ -41,8 +39,6 @@ const getProgressColor = (percentage: number, isDark: boolean): string => {
 export const ProgressCard: React.FC<ProgressCardProps> = ({
   completed,
   total,
-  dayName,
-  dayType,
   isDark,
   colors,
 }) => {
@@ -129,9 +125,6 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
 
       {/* Right: Info & Progress Bar */}
       <View style={styles.infoContainer}>
-        <Text style={[styles.dayTitle, { color: colors.textPrimary }]}>
-          {dayName} — {dayType}
-        </Text>
         <Text style={[styles.activityCount, { color: colors.textSecondary }]}>
           {completed} of {total} activities completed
         </Text>
@@ -190,18 +183,15 @@ const styles = StyleSheet.create({
   },
   infoContainer: {
     flex: 1,
-  },
-  dayTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 3,
+    justifyContent: 'center',
   },
   activityCount: {
-    fontSize: 12,
-    marginBottom: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 10,
   },
   progressBarBg: {
-    height: 5,
+    height: 6,
     borderRadius: 3,
     overflow: 'hidden',
   },

@@ -77,11 +77,15 @@ const DAY_WHEEL_ITEM_HEIGHT = 36;
 const DayWheelSelector = ({
   selectedDays,
   onSelectDays,
+  onScrollStart,
+  onScrollEnd,
   isDark,
   colors,
 }: {
   selectedDays: string[];
   onSelectDays: (days: string[], key: string) => void;
+  onScrollStart?: () => void;
+  onScrollEnd?: () => void;
   isDark: boolean;
   colors: any;
 }) => {
@@ -109,6 +113,14 @@ const DayWheelSelector = ({
     }, 50);
   }, []);
 
+  const handleScrollBeginDrag = () => {
+    onScrollStart?.();
+  };
+
+  const handleScrollEndDrag = () => {
+    onScrollEnd?.();
+  };
+
   const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
     const index = Math.round(y / DAY_WHEEL_ITEM_HEIGHT);
@@ -120,6 +132,7 @@ const DayWheelSelector = ({
         animated: true,
       });
     }
+    onScrollEnd?.();
   };
 
   const cardShadow = {
@@ -144,6 +157,9 @@ const DayWheelSelector = ({
           showsVerticalScrollIndicator={false}
           snapToInterval={DAY_WHEEL_ITEM_HEIGHT}
           decelerationRate="fast"
+          nestedScrollEnabled={true}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollEndDrag={handleScrollEndDrag}
           onMomentumScrollEnd={handleMomentumScrollEnd}
           contentContainerStyle={{ paddingVertical: DAY_WHEEL_ITEM_HEIGHT }}
         >
@@ -307,6 +323,7 @@ export default function SettingsScreen() {
   const [selectedDayFilter, setSelectedDayFilter] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
   const [iconPickerSlotId, setIconPickerSlotId] = useState<string | null>(null);
   const [timeEditorSlotId, setTimeEditorSlotId] = useState<string | null>(null);
+  const [isDayWheelScrolling, setIsDayWheelScrolling] = useState(false);
 
   const fetchSlots = useCallback(async () => {
     try {
@@ -428,6 +445,7 @@ export default function SettingsScreen() {
             showsVerticalScrollIndicator={false}
             activationDistance={15}
             dragHitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
+            scrollEnabled={!isDayWheelScrolling}
             ListHeaderComponent={
               <View>
                 {/* Theme Toggle */}
@@ -442,7 +460,14 @@ export default function SettingsScreen() {
                 </View>
 
                 {/* Day Wheel Selector - Compact */}
-                <DayWheelSelector selectedDays={selectedDayFilter} onSelectDays={handleDayFilterChange} isDark={isDark} colors={colors} />
+                <DayWheelSelector 
+                  selectedDays={selectedDayFilter} 
+                  onSelectDays={handleDayFilterChange} 
+                  onScrollStart={() => setIsDayWheelScrolling(true)}
+                  onScrollEnd={() => setIsDayWheelScrolling(false)}
+                  isDark={isDark} 
+                  colors={colors} 
+                />
 
                 {/* Activities Header */}
                 <View style={styles.activitiesHeader}>

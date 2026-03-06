@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,11 @@ import {
   ActivityIndicator,
   RefreshControl,
   Pressable,
+  Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons'
 import { LinearGradient } from 'expo-linear-gradient';
 import { format, addDays, subDays, getDay } from 'date-fns';
@@ -17,6 +20,11 @@ import { useTheme } from '../../context/ThemeContext';
 import { ProgressCard } from '../../components/ProgressCard';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+// Header collapse configuration
+const HEADER_MAX_HEIGHT = 90; // Logo + subtitle height
+const HEADER_MIN_HEIGHT = 0;
+const HEADER_SCROLL_DISTANCE = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
 
 interface ScheduleSlot {
   id: string;
@@ -212,12 +220,16 @@ const getDayType = (date: Date): string => {
 
 export default function TodayScreen() {
   const { isDark, colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [tasks, setTasks] = useState<TaskWithSlot[]>([]);
   const [progress, setProgress] = useState<ProgressData>({ total: 0, completed: 0, percentage: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
+  
+  // Scroll animation
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   const dateStr = format(currentDate, 'yyyy-MM-dd');
   const dayName = format(currentDate, 'EEEE');
@@ -293,21 +305,42 @@ export default function TodayScreen() {
 
   const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
 
+  // Animated values for collapsing header
+  const headerHeight = scrollY.interpolate({
+    inputRange: [0, HEADER_SCROLL_DISTANCE],
+    outputRange: [HEADER_MAX_HEIGHT, HEADER_MIN_HEIGHT],
+    extrapolate: 'clamp',
+  });
+
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [0, HEADER_SCROLL_DISTANCE / 2, HEADER_SCROLL_DISTANCE],
+    outputRange: [1, 0.5, 0],
+    extrapolate: 'clamp',
+  });
+
+  const dateNavTranslate = scrollY.interpolate({
+    inputRange: [0, HEADER_SCROLL_DISTANCE],
+    outputRange: [0, -HEADER_SCROLL_DISTANCE],
+    extrapolate: 'clamp',
+  });
+
   return (
     <View style={styles.container}>
       <LinearGradient
         colors={colors.bgGradient as any}
         style={StyleSheet.absoluteFillObject}
       />
-      <SafeAreaView style={styles.safeArea}>
-        {/* Logo */}
-        <Logo isDark={isDark} colors={colors} />
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Stay consistent, stay focused
-        </Text>
+      <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+        {/* Collapsible Header - Logo and Subtitle */}
+        <Animated.View style={[styles.collapsibleHeader, { height: headerHeight, opacity: headerOpacity }]}>
+          <Logo isDark={isDark} colors={colors} />
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Stay consistent, stay focused
+          </Text>
+        </Animated.View>
 
-        {/* Date Navigation */}
-        <View style={styles.dateNav}>
+        {/* Date Navigation - Moves up with scroll */}
+        <Animated.View style={[styles.dateNav, { transform: [{ translateY: dateNavTranslate }] }]}>
           <EmbossedButton onPress={goToPrevDay} isDark={isDark} colors={colors}>
             <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
           </EmbossedButton>
@@ -324,17 +357,22 @@ export default function TodayScreen() {
           <EmbossedButton onPress={goToNextDay} isDark={isDark} colors={colors}>
             <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
           </EmbossedButton>
-        </View>
+        </Animated.View>
 
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.accent} />
           </View>
         ) : (
-          <ScrollView
+          <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: 10 }]}
             showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={Animated.event(
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              { useNativeDriver: false }
+            )}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -347,8 +385,6 @@ export default function TodayScreen() {
             <ProgressCard
               completed={progress.completed}
               total={progress.total}
-              dayName={dayName}
-              dayType={dayType}
               isDark={isDark}
               colors={colors}
             />
@@ -366,9 +402,9 @@ export default function TodayScreen() {
                 />
               ))}
             </View>
-          </ScrollView>
+          </Animated.ScrollView>
         )}
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -379,6 +415,9 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  collapsibleHeader: {
+    overflow: 'hidden',
   },
   logoContainer: {
     marginHorizontal: 20,
@@ -405,6 +444,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 10,
+    zIndex: 10,
   },
   embossedButton: {
     width: 44,
