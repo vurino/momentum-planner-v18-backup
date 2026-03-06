@@ -1,0 +1,209 @@
+<analysis>
+
+**original_problem_statement**: The user wants to build a mobile-first productivity web app called Momentum Planner. The app should help users track their daily schedule and completed activities across three main screens: Today, History, and Settings.
+
+The core visual identity must follow a NeuroDark design system, which is a dark neumorphism style characterized by soft surfaces, subtle embossing, glowing accent highlights, and a specific color palette.
+
+**Key features requested over time:**
+- **Initial Build:** Today, History, and Settings screens with dark neumorphism UI, schedule list, and progress tracking.
+- **Revision 1:**
+    - Chrome-style app title.
+    - Light Mode theme.
+    - Embossed button styles.
+    - Schedule settings applicable to specific days of the week.
+    - Drag-and-drop task reordering.
+    - Improved time editing and a modal emoji picker.
+- **Revision 2:**
+    - Dial-based UI for time/duration editing.
+    - A large Momentum Dial on the Today page for daily progress.
+- **Revision 3:**
+    - Replaced the Momentum Dial with a horizontal progress bar.
+    - Changed Light Mode to use a beige color palette.
+    - Replaced time-editing dials with scrollable wheels.
+    - Replaced per-task day settings with a global day-selector wheel in Settings.
+- **Revision 4 (Current):**
+    - UI/UX refinements for the Settings screen scroll, day selector wheel, and time editor modal.
+    - Gradient color change for the progress bar on the main screen.
+
+**User's preferred language**: English
+
+**what currently exists?**
+A full-stack mobile application built with Expo (React Native) and a FastAPI backend.
+- **Frontend**: The app features a dark neumorphic design with an alternative light beige theme. It includes three main tabs:
+    - **Today**: Displays the daily task list, a horizontal progress card showing completion percentage, and the new chrome-styled logo.
+    - **History**: Allows viewing task history (UI implemented, data logic is basic).
+    - **Settings**: Contains a theme toggle (Dark/Light), a wheel-based day selector (for Weekdays, Weekends, or individual days), and a list of schedule activities. The activities can be reordered via drag-and-drop, and their times can be edited using a modal with scroll-wheel pickers.
+- **Backend**: A FastAPI server with MongoDB, providing API endpoints to manage  and  data. The  model includes a  array to support day-specific schedules.
+
+**Last working item**:
+- Last item agent was working: The agent was actively implementing a list of UI/UX refinements requested by the user in message #164. It had just written code to:
+    1.  Update the  component on the main screen to use a gray-to-orange gradient.
+    2.  Update the  to use a full-screen  and modify the  to be smaller.
+- Status: IN PROGRESS
+- Agent Testing Done: N
+- Which testing method agent to use? screenshot tool
+- User Testing Done: N
+
+**All Pending/In progress Issue list**:
+- **Issue 1 (P0): Refine Settings Screen UI**
+- **Issue 2 (P1): Refine Time Editor Modal UI**
+- **Issue 3 (P2): Verify Main Screen Progress Bar Gradient**
+- **Issue 4 (P3): Fix Light Mode Theme Persistence**
+
+Issues Detail:
+- **Issue 1: Refine Settings Screen UI**
+    - **Description**: The user requested several changes to the Settings screen for better usability on mobile.
+    - **Next debug checklist**:
+        1.  Verify that the entire Settings screen is scrollable, not just the task list area. Check  to ensure  is wrapping all content correctly.
+        2.  Verify the day selector wheel is smaller, showing only the previous, current, and next day options. Check .
+        3.  Confirm the label SCHEDULE FOR has been replaced with DAY.
+    - **Why fix this issue and what will be achieved with the fix?**: To improve the mobile UX of the Settings page, making it less cluttered and fully scrollable as requested by the user.
+    - **Status**: IN PROGRESS
+    - **Is recurring issue?**: Y (Scrolling has been mentioned before).
+    - **Should Test frontend/backend/both after fix?**: Frontend.
+    - **Blocked on other issue**: None.
+
+- **Issue 2: Refine Time Editor Modal UI**
+    - **Description**: The time editor modal with scroll wheels does not fit well on the screen and needs several layout adjustments.
+    - **Next debug checklist**:
+        1.  Open .
+        2.  Adjust the component's layout and styling to make it more compact.
+        3.  Reduce the size of the bento boxes (the number items in the wheels).
+        4.  Ensure only a few numbers are visible above and below the selected value in each wheel.
+        5.  Reposition the 'Start' and 'End' labels to the left of their respective wheels.
+        6.  Confirm the 'Cancel' and 'Save' buttons are always visible within the modal on a mobile screen size.
+    - **Why fix this issue and what will be achieved with the fix?**: To make the time editing feature usable on mobile devices, which is currently broken due to layout issues.
+    - **Status**: NOT STARTED
+    - **Is recurring issue?**: N
+    - **Should Test frontend/backend/both after fix?**: Frontend.
+    - **Blocked on other issue**: None.
+
+- **Issue 3: Verify Main Screen Progress Bar Gradient**
+    - **Description**: The user requested the progress bar on the main screen to use a progressive gradient from gray to orange.
+    - **Next debug checklist**:
+        1.  Check the implementation in .
+        2.  Use  to create a gradient that starts with gray and transitions to the app's accent orange based on the completion percentage.
+        3.  Verify visually by completing a few tasks.
+    - **Why fix this issue and what will be achieved with the fix?**: To match the user's specific design request for the progress indicator.
+    - **Status**: IN PROGRESS
+    - **Is recurring issue?**: N
+    - **Should Test frontend/backend/both after fix?**: Frontend.
+    - **Blocked on other issue**: None.
+
+**In progress Task List**:
+N/A
+
+**Upcoming and Future Tasks**
+N/A (All current work is based on direct user feedback rather than a pre-defined roadmap).
+
+**Completed work in this session**
+- **Initial App Scaffolding**: Created the basic three-tab (Today, History, Settings) Expo application with a FastAPI backend.
+- **Neumorphic Design System**: Implemented the NeuroDark dark neumorphism style, including custom colors, shadows, and card styles.
+- **Backend API**: Built CRUD endpoints for schedule slots and daily tasks in .
+- **Theming Engine (Light/Dark Mode)**: Implemented a  and  hook () to allow toggling between a dark and a light (beige) theme.
+- **Task Management**:
+    - Toggling task completion on the Today screen.
+    - Real-time progress updates.
+    - Drag-and-drop reordering of tasks in Settings ( in ).
+- **Custom UI Components**:
+    - **Chrome-style Title**: Implemented a custom text style for the app title.
+    - **Day Selector Wheel**: Created a wheel picker for selecting the day of the week in Settings ().
+    - **Scroll Wheel Time Picker**: Built a custom modal for time editing using scrollable wheels ().
+    - **Progress Card**: Replaced the original progress dial with a new horizontal progress bar component ().
+- **Backend Model Updates**: Modified the  model in  to include a  field to handle day-specific schedules.
+
+**Earlier issues found/mentioned but not fixed**
+- **Issue 1: Light Mode Theme Persistence**
+    - **Description**: In messages #82 and #160, the agent observed that when switching to Light Mode in Settings and then navigating to the Today screen (or after a reload), the UI reverts to Dark Mode. The theme selection is not being correctly persisted and applied across app sessions or reloads.
+    - **Debug checklist**:
+        1.  Review . Check how the theme state is saved to .
+        2.  Verify how the theme is loaded when the app starts. The  should read from  on initial load.
+        3.  Ensure the  hook correctly provides the persisted theme value across all components.
+    - **Why to solve this issue and what will be achieved with this?**: The Light Mode feature is incomplete and provides a poor user experience if the selected theme isn't remembered.
+    - **Should Test frontend/backend/both after fix?**: Frontend.
+    - **Is recurring issue?**: Y
+
+**Known issue recurrence from previous fork**
+- **Issue**: Unknown task labels appearing on the Today screen.
+- **Reason**: This occurs when the  collection in the database is reset (generating new s), but the  collection still references the old s.
+- **Previous Fix**: The agent manually cleared the  collection.
+- **Note for next agent**: Be aware that schema changes or database resets can cause this data inconsistency. A more robust solution for the future could involve a data migration script or cascading deletes if the database supported it. For now, be prepared to clear  if you modify .
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Frontend**: React Native, Expo, Expo Router (file-based routing)
+- **Backend**: FastAPI, Python
+- **Database**: MongoDB
+- **UI/Design**: Dark Neumorphism, custom components,  for gradients.
+- **State Management**: React Context API for theme management ().
+- **Gestures**:  and  for animations,  for task reordering.
+
+**key DB schema**
+- : 
+- : 
+
+**changes in tech stack**
+None. The stack has remained Expo (React Native) + FastAPI + MongoDB.
+
+**All files of reference**
+- : Updated to implement full-screen scroll and integrate the smaller day wheel. Needs verification.
+- : The location for the required Time Editor Modal UI fixes.
+- : Main screen, displays the .
+- : Updated with a new gray-to-orange gradient. Needs verification.
+- : Contains the logic for theme switching and persistence. This is the key file for debugging the Light Mode persistence issue.
+- : Contains all backend logic and database models.
+
+**Areas that need refactoring**:
+- The theme persistence logic in  is faulty and needs to be fixed to ensure the selected theme is correctly loaded and applied across the app.
+
+**key api endpoints**
+- : Fetches the list of schedule slots for the day.
+- : Updates the  of all slots.
+- : Updates a specific schedule slot.
+- : Creates a new schedule slot.
+- : Deletes a schedule slot.
+- : Fetches tasks for a specific date.
+- : Creates or updates a daily task's completion status.
+
+**Critical Info for New Agent**
+- **Theme Persistence is Broken**: The app does not correctly remember the user's choice of Light Mode across sessions. This is a high-priority bug to fix for a good user experience. You should investigate  and its use of .
+- **UI Refinements are Top Priority**: The user's latest requests (message #164) are all about polishing the UI. Focus on completing these visual and layout adjustments first.
+- **Database Resets**: Be aware that modifying the schedule slots can lead to data inconsistency with existing daily tasks, causing Unknown labels. If you see this, you may need to clear the  collection in the MongoDB shell as a temporary fix.
+
+**documents created in this job**
+- 
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **#164:** Requested UI refinements: full-screen scroll in Settings, smaller time edit panel, smaller day wheel, and a new gradient for the progress bar. (PENDING)
+2.  **#129:** Requested major UI overhaul: new progress card, beige light mode, new logo style, wheel-based day/time selectors, and drag & drop. (Implemented)
+3.  **#96:** Requested dial-based UI components for time editing and a Momentum Dial for progress. (Implemented, but now superseded by wheel pickers).
+4.  **#45:** Requested first major set of features: chrome title, light mode, embossed buttons, day selection, task reordering, and improved time/emoji pickers. (Implemented)
+
+**Project Health Check:**
+- **Broken**:
+    - Theme persistence for Light Mode.
+    - The layout of the Time Editor modal is unusable on mobile.
+- **Mocked**:
+    - N/A. The app is connected to a live backend.
+
+**3rd Party Integrations**
+None currently in use.
+
+**Testing status**
+- Testing agent used after significant changes: YES (Backend testing was run and passed).
+- Troubleshoot agent used after agent stuck in loop: NO
+- Test files created: None.
+- Known regressions:
+    - Light mode theme does not persist across reloads/navigation.
+
+**Credentials to test flow:**
+N/A (No authentication is implemented).
+
+</analysis>
+<SYS_PROMPT_SEPARATOR>
+<workspace_dir>
+/app
+</workspace_dir>
+Now let me continue with the implementation of the user's latest request. I will start by applying the UI refinements. First, I'll fix the Time Editor Modal UI, then I'll verify the other changes I've made.

@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
 // Dark Mode Colors (NeuroDark) - Cards at 50% shade
 const DARK_COLORS = {
@@ -63,49 +64,110 @@ interface ThemeContextType {
   isDark: boolean;
   colors: ThemeColors;
   toggleTheme: () => void;
+  isLoading: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_STORAGE_KEY = '@momentum_theme_mode';
 
+// Helper to get storage - with web fallback
+const getStorageValue = async (key: string): Promise<string | null> => {
+  try {
+    // First try AsyncStorage
+    const value = await AsyncStorage.getItem(key);
+    if (value !== null) return value;
+    
+    // Fallback to direct localStorage for web
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem(key);
+    }
+    return null;
+  } catch (e) {
+    // Direct localStorage fallback
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem(key);
+    }
+    return null;
+  }
+};
+
+// Helper to set storage - with web fallback  
+const setStorageValue = async (key: string, value: string): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(key, value);
+    // Also set in localStorage directly for web reliability
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, value);
+    }
+  } catch (e) {
+    // Direct localStorage fallback
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, value);
+    }
+  }
+};
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [isDark, setIsDark] = useState(true); // Default to dark mode
+  const [isLoading, setIsLoading] = useState(true); // Track loading state
 
-  useEffect(() => {
-    // Load saved theme preference
-    loadTheme();
-  }, []);
-
-  const loadTheme = async () => {
+  const loadTheme = useCallback(async () => {
     try {
-      const savedTheme = await AsyncStorage.getItem(THEME_STORAGE_KEY);
+      const savedTheme = await getStorageValue(THEME_STORAGE_KEY);
+      console.log('[Theme] Loaded from storage:', savedTheme);
       if (savedTheme !== null) {
         setIsDark(savedTheme === 'dark');
       }
     } catch (error) {
       console.error('Error loading theme:', error);
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, []);
 
-  const toggleTheme = async () => {
+  useEffect(() => {
+    // Load saved theme preference on mount
+    loadTheme();
+  }, [loadTheme]);
+
+  const toggleTheme = useCallback(async () => {
     try {
       const newIsDark = !isDark;
+      console.log('[Theme] Toggling to:', newIsDark ? 'dark' : 'light');
       setIsDark(newIsDark);
-      await AsyncStorage.setItem(THEME_STORAGE_KEY, newIsDark ? 'dark' : 'light');
+      await setStorageValue(THEME_STORAGE_KEY, newIsDark ? 'dark' : 'light');
+      console.log('[Theme] Saved to storage:', newIsDark ? 'dark' : 'light');
     } catch (error) {
       console.error('Error saving theme:', error);
     }
-  };
+  }, [isDark]);
 
   const colors = isDark ? DARK_COLORS : LIGHT_COLORS;
 
+  // Show loading screen while theme is being loaded
+  if (isLoading) {
+    return (
+      <View style={[loadingStyles.container, { backgroundColor: DARK_COLORS.bgGradient[0] }]}>
+        <ActivityIndicator size="large" color={DARK_COLORS.accent} />
+      </View>
+    );
+  }
+
   return (
-    <ThemeContext.Provider value={{ isDark, colors, toggleTheme }}>
+    <ThemeContext.Provider value={{ isDark, colors, toggleTheme, isLoading }}>
       {children}
     </ThemeContext.Provider>
   );
 }
+
+const loadingStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
 
 export function useTheme() {
   const context = useContext(ThemeContext);

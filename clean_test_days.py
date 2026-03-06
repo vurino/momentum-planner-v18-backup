@@ -6,7 +6,7 @@ Clean up database and test days field functionality fresh
 import requests
 import json
 
-BACKEND_URL = "https://neuro-planner-6.preview.emergentagent.com/api"
+BACKEND_URL = "https://progress-tracker-426.preview.emergentagent.com/api"
 
 def cleanup_and_test():
     """Clean database and test fresh"""

@@ -330,3 +330,5 @@ agent_communication:
     - message: "✅ BACKEND TESTING COMPLETE: All 11 API endpoints tested and working correctly. Created backend_test.py for comprehensive testing. All endpoints return proper HTTP 200 status codes and expected data structures. No critical issues found."
     - agent: "testing"
     - message: "✅ DAYS FIELD TESTING COMPLETE: All 7 tests for days field functionality passed. Schedule slots properly have 'days' array field, daily task filtering works correctly (14 tasks for weekdays, 5 tasks for weekends), and all CRUD operations preserve the days field. Created backend_days_test.py for comprehensive days field testing."
+    - agent: "main"
+    - message: "✅ THEME PERSISTENCE FIX COMPLETE: Fixed theme persistence issue in ThemeContext.tsx. Added web localStorage fallback for reliable storage. Theme now persists correctly during in-app navigation. Note: Preview environment may clear storage on full page reload (environment limitation, not app issue)."

@@ -7,16 +7,36 @@ import {
   Easing,
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
-import { getProgressColor } from '../context/ThemeContext';
 
 interface ProgressCardProps {
   completed: number;
   total: number;
   dayName: string;
-  dayType: string; // 'Weekday' or 'Weekend'
+  dayType: string;
   isDark: boolean;
   colors: any;
 }
+
+// Get progress color - progressive gradient from gray to orange
+const getProgressColor = (percentage: number, isDark: boolean): string => {
+  if (percentage === 0) return isDark ? '#3a4555' : '#c5c0b5';
+  // Progressive gradient from gray to orange based on percentage
+  // At 0% = gray, at 100% = full orange
+  const grayR = isDark ? 58 : 197;
+  const grayG = isDark ? 69 : 192;
+  const grayB = isDark ? 85 : 181;
+  
+  const orangeR = 255;
+  const orangeG = 106;
+  const orangeB = 46;
+  
+  const ratio = percentage / 100;
+  const r = Math.round(grayR + (orangeR - grayR) * ratio);
+  const g = Math.round(grayG + (orangeG - grayG) * ratio);
+  const b = Math.round(grayB + (orangeB - grayB) * ratio);
+  
+  return `rgb(${r}, ${g}, ${b})`;
+};
 
 export const ProgressCard: React.FC<ProgressCardProps> = ({
   completed,
@@ -27,9 +47,8 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
   colors,
 }) => {
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-  const progressColor = getProgressColor(percentage, colors);
+  const progressColor = getProgressColor(percentage, isDark);
   
-  // Animation for progress
   const progressAnim = useRef(new Animated.Value(0)).current;
   const barWidthAnim = useRef(new Animated.Value(0)).current;
 
@@ -50,19 +69,18 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
     ]).start();
   }, [percentage]);
 
-  // SVG progress ring
-  const size = 80;
-  const strokeWidth = 6;
+  const size = 70;
+  const strokeWidth = 5;
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
   const cardShadow = {
     shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: isDark ? 0.5 : 0.1,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: isDark ? 0.4 : 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   };
 
   return (
@@ -71,9 +89,9 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
       <View style={styles.circleContainer}>
         <Svg width={size} height={size}>
           <Defs>
-            <SvgGradient id={`progressGrad-${percentage}`} x1="0%" y1="0%" x2="100%" y2="100%">
+            <SvgGradient id="progressGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <Stop offset="0%" stopColor={progressColor} />
-              <Stop offset="100%" stopColor={progressColor} stopOpacity={0.8} />
+              <Stop offset="100%" stopColor={progressColor} stopOpacity={0.9} />
             </SvgGradient>
           </Defs>
           {/* Background circle */}
@@ -81,7 +99,7 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke={colors.progressEmpty}
+            stroke={isDark ? '#2a3344' : '#d5d0c5'}
             strokeWidth={strokeWidth}
             fill="none"
           />
@@ -90,7 +108,7 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke={`url(#progressGrad-${percentage})`}
+            stroke="url(#progressGrad)"
             strokeWidth={strokeWidth}
             fill="none"
             strokeLinecap="round"
@@ -119,7 +137,7 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
         </Text>
         
         {/* Progress Bar */}
-        <View style={[styles.progressBarBg, { backgroundColor: colors.progressEmpty }]}>
+        <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
           <Animated.View
             style={[
               styles.progressBarFill,
@@ -142,18 +160,18 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 14,
+    padding: 14,
     marginHorizontal: 20,
-    marginVertical: 10,
+    marginVertical: 8,
   },
   circleContainer: {
     position: 'relative',
-    width: 80,
-    height: 80,
+    width: 70,
+    height: 70,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 14,
   },
   circleText: {
     position: 'absolute',
@@ -161,29 +179,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   percentageText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
   },
   doneText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '700',
-    letterSpacing: 1,
+    letterSpacing: 0.5,
     marginTop: 1,
   },
   infoContainer: {
     flex: 1,
   },
   dayTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   activityCount: {
-    fontSize: 13,
-    marginBottom: 10,
+    fontSize: 12,
+    marginBottom: 8,
   },
   progressBarBg: {
-    height: 6,
+    height: 5,
     borderRadius: 3,
     overflow: 'hidden',
   },

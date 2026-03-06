@@ -10,7 +10,7 @@ from datetime import datetime, date
 from typing import Dict, List, Any
 
 # Configuration
-BACKEND_URL = "https://neuro-planner-6.preview.emergentagent.com/api"
+BACKEND_URL = "https://progress-tracker-426.preview.emergentagent.com/api"
 
 def print_test_result(test_name: str, success: bool, details: str = ""):
     """Print formatted test results"""

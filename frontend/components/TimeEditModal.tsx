@@ -13,9 +13,9 @@ import {
   NativeScrollEvent,
 } from 'react-native';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const ITEM_HEIGHT = 50;
-const VISIBLE_ITEMS = 5;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const ITEM_HEIGHT = 36;
+const VISIBLE_ITEMS = 3;
 
 interface WheelPickerProps {
   items: string[];
@@ -28,14 +28,14 @@ interface WheelPickerProps {
   onManualInput?: (value: string) => void;
 }
 
-// Individual Wheel Picker Component
+// Compact Wheel Picker Component
 const WheelPicker: React.FC<WheelPickerProps> = ({
   items,
   selectedIndex,
   onSelect,
   isDark,
   colors,
-  width = 70,
+  width = 50,
   allowManualInput = false,
   onManualInput,
 }) => {
@@ -44,33 +44,23 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
   const [manualValue, setManualValue] = useState('');
 
   useEffect(() => {
-    // Scroll to selected item
     setTimeout(() => {
       scrollViewRef.current?.scrollTo({
         y: selectedIndex * ITEM_HEIGHT,
         animated: false,
       });
-    }, 100);
+    }, 50);
   }, []);
-
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = event.nativeEvent.contentOffset.y;
-    const index = Math.round(y / ITEM_HEIGHT);
-    if (index >= 0 && index < items.length && index !== selectedIndex) {
-      onSelect(index);
-    }
-  };
 
   const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
     const index = Math.round(y / ITEM_HEIGHT);
-    // Snap to nearest item
-    scrollViewRef.current?.scrollTo({
-      y: index * ITEM_HEIGHT,
-      animated: true,
-    });
     if (index >= 0 && index < items.length) {
       onSelect(index);
+      scrollViewRef.current?.scrollTo({
+        y: index * ITEM_HEIGHT,
+        animated: true,
+      });
     }
   };
 
@@ -96,13 +86,12 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
   };
 
   return (
-    <View style={[styles.wheelContainer, { width }]}>
-      {/* Selection indicator */}
+    <View style={[styles.wheelContainer, { width, height: ITEM_HEIGHT * VISIBLE_ITEMS }]}>
       <View style={[
         styles.selectionIndicator,
         { 
-          backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-          top: ITEM_HEIGHT * 2,
+          backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+          top: ITEM_HEIGHT,
         }
       ]} />
       
@@ -111,18 +100,13 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
-        onScroll={handleScroll}
         onMomentumScrollEnd={handleMomentumScrollEnd}
-        scrollEventThrottle={16}
-        contentContainerStyle={{
-          paddingVertical: ITEM_HEIGHT * 2,
-        }}
+        contentContainerStyle={{ paddingVertical: ITEM_HEIGHT }}
       >
         {items.map((item, index) => {
           const isSelected = index === selectedIndex;
           const distance = Math.abs(index - selectedIndex);
-          const opacity = distance === 0 ? 1 : distance === 1 ? 0.5 : 0.25;
-          const scale = distance === 0 ? 1 : 0.85;
+          const opacity = distance === 0 ? 1 : 0.35;
 
           return (
             <TouchableOpacity
@@ -133,13 +117,7 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
             >
               {isEditing && isSelected ? (
                 <TextInput
-                  style={[
-                    styles.manualInput,
-                    { 
-                      color: colors.accent,
-                      borderBottomColor: colors.accent,
-                    }
-                  ]}
+                  style={[styles.manualInput, { color: colors.accent }]}
                   value={manualValue}
                   onChangeText={setManualValue}
                   onBlur={handleManualSubmit}
@@ -155,8 +133,8 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
                     {
                       color: isSelected ? colors.accent : colors.textSecondary,
                       opacity,
-                      transform: [{ scale }],
                       fontWeight: isSelected ? '700' : '400',
+                      fontSize: isSelected ? 20 : 16,
                     },
                   ]}
                 >
@@ -171,8 +149,8 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
   );
 };
 
-// Time Wheel Group (Hour : Minute AM/PM)
-interface TimeWheelGroupProps {
+// Time Wheel Row with Label on Left
+interface TimeWheelRowProps {
   label: string;
   hour: number;
   minute: number;
@@ -184,7 +162,7 @@ interface TimeWheelGroupProps {
   colors: any;
 }
 
-const TimeWheelGroup: React.FC<TimeWheelGroupProps> = ({
+const TimeWheelRow: React.FC<TimeWheelRowProps> = ({
   label,
   hour,
   minute,
@@ -199,16 +177,15 @@ const TimeWheelGroup: React.FC<TimeWheelGroupProps> = ({
   const minutes = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'));
   const periods = ['AM', 'PM'];
 
-  // Convert to 12-hour format for display
   const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
   const hourIndex = displayHour - 1;
   const minuteIndex = Math.floor(minute / 5);
   const periodIndex = isPM ? 1 : 0;
 
   return (
-    <View style={styles.timeWheelGroup}>
-      <Text style={[styles.groupLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <View style={styles.wheelsRow}>
+    <View style={styles.timeWheelRow}>
+      <Text style={[styles.rowLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <View style={styles.wheelsGroup}>
         <WheelPicker
           items={hours}
           selectedIndex={hourIndex}
@@ -218,7 +195,7 @@ const TimeWheelGroup: React.FC<TimeWheelGroupProps> = ({
           }}
           isDark={isDark}
           colors={colors}
-          width={60}
+          width={44}
           allowManualInput
           onManualInput={(val) => {
             const h = parseInt(val);
@@ -227,14 +204,14 @@ const TimeWheelGroup: React.FC<TimeWheelGroupProps> = ({
             }
           }}
         />
-        <Text style={[styles.timeSeparator, { color: colors.textPrimary }]}>:</Text>
+        <Text style={[styles.colonSeparator, { color: colors.textPrimary }]}>:</Text>
         <WheelPicker
           items={minutes}
           selectedIndex={minuteIndex}
           onSelect={(index) => onMinuteChange(index * 5)}
           isDark={isDark}
           colors={colors}
-          width={60}
+          width={44}
           allowManualInput
           onManualInput={(val) => {
             const m = parseInt(val);
@@ -246,36 +223,31 @@ const TimeWheelGroup: React.FC<TimeWheelGroupProps> = ({
         <WheelPicker
           items={periods}
           selectedIndex={periodIndex}
-          onSelect={(index) => {
-            const newIsPM = index === 1;
-            if (newIsPM !== isPM) {
-              onPeriodChange(newIsPM);
-            }
-          }}
+          onSelect={(index) => onPeriodChange(index === 1)}
           isDark={isDark}
           colors={colors}
-          width={50}
+          width={40}
         />
       </View>
     </View>
   );
 };
 
-// Duration Wheel Group (Hours : Minutes)
-interface DurationWheelGroupProps {
+// Duration Wheel Row (centered)
+interface DurationWheelRowProps {
   durationMins: number;
   onDurationChange: (mins: number) => void;
   isDark: boolean;
   colors: any;
 }
 
-const DurationWheelGroup: React.FC<DurationWheelGroupProps> = ({
+const DurationWheelRow: React.FC<DurationWheelRowProps> = ({
   durationMins,
   onDurationChange,
   isDark,
   colors,
 }) => {
-  const durationHours = Array.from({ length: 13 }, (_, i) => i.toString()); // 0-12 hours
+  const durationHours = Array.from({ length: 13 }, (_, i) => i.toString());
   const durationMinutes = ['00', '15', '30', '45'];
 
   const hours = Math.floor(durationMins / 60);
@@ -284,33 +256,33 @@ const DurationWheelGroup: React.FC<DurationWheelGroupProps> = ({
   const minIndex = Math.floor(mins / 15);
 
   return (
-    <View style={styles.timeWheelGroup}>
-      <Text style={[styles.groupLabel, { color: colors.textSecondary }]}>DURATION</Text>
-      <View style={styles.wheelsRow}>
+    <View style={styles.durationRow}>
+      <Text style={[styles.durationLabel, { color: colors.textSecondary }]}>DURATION</Text>
+      <View style={styles.durationWheels}>
         <WheelPicker
           items={durationHours}
           selectedIndex={hourIndex}
           onSelect={(index) => onDurationChange(index * 60 + (minIndex * 15))}
           isDark={isDark}
           colors={colors}
-          width={50}
+          width={40}
         />
-        <Text style={[styles.durationLabel, { color: colors.textSecondary }]}>hr</Text>
+        <Text style={[styles.unitLabel, { color: colors.textSecondary }]}>h</Text>
         <WheelPicker
           items={durationMinutes}
           selectedIndex={minIndex}
           onSelect={(index) => onDurationChange(hourIndex * 60 + (index * 15))}
           isDark={isDark}
           colors={colors}
-          width={50}
+          width={40}
         />
-        <Text style={[styles.durationLabel, { color: colors.textSecondary }]}>min</Text>
+        <Text style={[styles.unitLabel, { color: colors.textSecondary }]}>m</Text>
       </View>
     </View>
   );
 };
 
-// Main Time Edit Modal
+// Main Time Edit Modal - Compact version
 interface TimeEditModalProps {
   visible: boolean;
   onClose: () => void;
@@ -332,13 +304,11 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
   isDark,
   colors,
 }) => {
-  // Parse time string to hours/minutes
   const parseTime = (time: string): { hour: number; minute: number } => {
     const [h, m] = time.split(':').map(Number);
     return { hour: h || 0, minute: m || 0 };
   };
 
-  // Format time to string (24-hour format)
   const formatTime = (hour: number, minute: number): string => {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
   };
@@ -368,7 +338,6 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
   const [duration, setDuration] = useState(calcDuration(initial.start.hour, initial.start.minute, initial.end.hour, initial.end.minute));
   const [lastEdited, setLastEdited] = useState<'start' | 'end' | 'duration'>('start');
 
-  // Reset when modal opens
   useEffect(() => {
     if (visible) {
       const start = parseTime(initialStartTime);
@@ -381,15 +350,12 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
     }
   }, [visible, initialStartTime, initialEndTime]);
 
-  // Auto-calculate based on last edited
   useEffect(() => {
     if (lastEdited === 'start' || lastEdited === 'duration') {
-      // Calculate end time
       const newEnd = calcEndTime(startHour, startMinute, duration);
       setEndHour(newEnd.hour);
       setEndMinute(newEnd.minute);
     } else if (lastEdited === 'end') {
-      // Calculate duration
       const newDuration = calcDuration(startHour, startMinute, endHour, endMinute);
       setDuration(newDuration);
     }
@@ -420,29 +386,19 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
   const startIsPM = startHour >= 12;
   const endIsPM = endHour >= 12;
 
-  const cardShadow = {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 6, height: 6 },
-    shadowOpacity: isDark ? 0.6 : 0.15,
-    shadowRadius: 16,
-    elevation: 10,
-  };
-
   return (
     <Modal visible={visible} transparent animationType="fade">
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-          <View style={[styles.card, { backgroundColor: colors.card }, cardShadow]}>
+          <View style={[styles.card, { backgroundColor: colors.card }]}>
             {/* Header */}
-            <View style={styles.header}>
-              <Text style={[styles.title, { color: colors.textPrimary }]}>Edit Time</Text>
-              {taskLabel && (
-                <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>{taskLabel}</Text>
-              )}
-            </View>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>Edit Time</Text>
+            {taskLabel && (
+              <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>{taskLabel}</Text>
+            )}
 
-            {/* Start Time */}
-            <TimeWheelGroup
+            {/* Start Time Row */}
+            <TimeWheelRow
               label="START"
               hour={startHour}
               minute={startMinute}
@@ -459,8 +415,8 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
               colors={colors}
             />
 
-            {/* End Time */}
-            <TimeWheelGroup
+            {/* End Time Row */}
+            <TimeWheelRow
               label="END"
               hour={endHour}
               minute={endMinute}
@@ -477,8 +433,8 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
               colors={colors}
             />
 
-            {/* Duration */}
-            <DurationWheelGroup
+            {/* Duration Row */}
+            <DurationWheelRow
               durationMins={duration}
               onDurationChange={handleDurationChange}
               isDark={isDark}
@@ -491,13 +447,13 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
                 style={[styles.button, { backgroundColor: isDark ? '#1a2230' : '#e8e2d8' }]}
                 onPress={onClose}
               >
-                <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
+                <Text style={[styles.buttonText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.button, { backgroundColor: colors.accent }]}
                 onPress={handleSave}
               >
-                <Text style={styles.saveText}>Save</Text>
+                <Text style={[styles.buttonText, { color: '#fff' }]}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -515,95 +471,105 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContent: {
-    width: SCREEN_WIDTH - 40,
-    maxWidth: 380,
+    width: SCREEN_WIDTH - 32,
+    maxWidth: 360,
   },
   card: {
-    borderRadius: 20,
-    padding: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 20,
+    borderRadius: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   title: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 4,
   },
   taskLabel: {
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 12,
   },
-  timeWheelGroup: {
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  groupLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 8,
-  },
-  wheelsRow: {
+  timeWheelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: ITEM_HEIGHT * VISIBLE_ITEMS,
+    marginBottom: 8,
+  },
+  rowLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    width: 50,
+  },
+  wheelsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
   },
   wheelContainer: {
-    height: ITEM_HEIGHT * VISIBLE_ITEMS,
     overflow: 'hidden',
   },
   selectionIndicator: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: 2,
+    right: 2,
     height: ITEM_HEIGHT,
-    borderRadius: 10,
+    borderRadius: 8,
     zIndex: -1,
   },
   wheelItem: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  wheelItemText: {
-    fontSize: 24,
-  },
+  wheelItemText: {},
   manualInput: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
     textAlign: 'center',
     width: '100%',
-    borderBottomWidth: 2,
     padding: 0,
   },
-  timeSeparator: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginHorizontal: 4,
+  colonSeparator: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginHorizontal: 2,
+  },
+  durationRow: {
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
   },
   durationLabel: {
-    fontSize: 14,
-    marginLeft: 4,
-    marginRight: 12,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  durationWheels: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  unitLabel: {
+    fontSize: 12,
+    marginLeft: 2,
+    marginRight: 8,
   },
   buttons: {
     flexDirection: 'row',
-    marginTop: 10,
-    gap: 12,
+    gap: 10,
   },
   button: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: 'center',
   },
-  cancelText: {
-    fontSize: 16,
+  buttonText: {
+    fontSize: 15,
     fontWeight: '600',
-  },
-  saveText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
   },
 });

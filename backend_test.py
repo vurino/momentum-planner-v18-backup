@@ -10,7 +10,7 @@ from datetime import datetime, date
 from typing import Dict, List, Any
 
 # Configuration
-BACKEND_URL = "https://neuro-planner-6.preview.emergentagent.com/api"
+BACKEND_URL = "https://progress-tracker-426.preview.emergentagent.com/api"
 TEST_DATE = "2026-03-04"
 TEST_YEAR = 2026
 TEST_MONTH = 3
