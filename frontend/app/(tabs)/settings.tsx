@@ -413,53 +413,55 @@ export default function SettingsScreen() {
           <Text style={[styles.title, { color: colors.textPrimary }]}>Settings</Text>
         </View>
 
-        {/* Full Screen Scroll */}
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Theme Toggle */}
-          <View style={[styles.themeToggleCard, { backgroundColor: colors.card }, cardShadow]}>
-            <View style={styles.themeToggleContent}>
-              <Ionicons name={isDark ? 'moon' : 'sunny'} size={20} color={colors.accent} />
-              <Text style={[styles.themeToggleLabel, { color: colors.textPrimary, marginLeft: 10 }]}>
-                {isDark ? 'Dark Mode' : 'Light Mode'}
-              </Text>
-            </View>
-            <NeumorphicSwitch value={!isDark} onValueChange={() => toggleTheme()} isDark={isDark} colors={colors} />
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
           </View>
+        ) : (
+          /* Main Scrollable List - DraggableFlatList handles all scrolling */
+          <DraggableFlatList
+            data={slots}
+            keyExtractor={(item) => item.id}
+            onDragEnd={handleDragEnd}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            activationDistance={15}
+            dragHitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
+            ListHeaderComponent={
+              <View>
+                {/* Theme Toggle */}
+                <View style={[styles.themeToggleCard, { backgroundColor: colors.card }, cardShadow]}>
+                  <View style={styles.themeToggleContent}>
+                    <Ionicons name={isDark ? 'moon' : 'sunny'} size={20} color={colors.accent} />
+                    <Text style={[styles.themeToggleLabel, { color: colors.textPrimary, marginLeft: 10 }]}>
+                      {isDark ? 'Dark Mode' : 'Light Mode'}
+                    </Text>
+                  </View>
+                  <NeumorphicSwitch value={!isDark} onValueChange={() => toggleTheme()} isDark={isDark} colors={colors} />
+                </View>
 
-          {/* Day Wheel Selector - Compact */}
-          <DayWheelSelector selectedDays={selectedDayFilter} onSelectDays={handleDayFilterChange} isDark={isDark} colors={colors} />
+                {/* Day Wheel Selector - Compact */}
+                <DayWheelSelector selectedDays={selectedDayFilter} onSelectDays={handleDayFilterChange} isDark={isDark} colors={colors} />
 
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={colors.accent} />
-            </View>
-          ) : (
-            <>
-              {/* Activities Header */}
-              <View style={styles.activitiesHeader}>
-                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
-                <Text style={[styles.sectionHint, { color: colors.textSecondary }]}>Long press to drag</Text>
+                {/* Activities Header */}
+                <View style={styles.activitiesHeader}>
+                  <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
+                  <Text style={[styles.sectionHint, { color: colors.textSecondary }]}>Hold & drag to reorder</Text>
+                </View>
               </View>
-
-              {/* Task List - Using FlatList height */}
-              <View style={styles.listWrapper}>
-                <DraggableFlatList
-                  data={slots}
-                  keyExtractor={(item) => item.id}
-                  onDragEnd={handleDragEnd}
-                  renderItem={renderItem}
-                  scrollEnabled={false}
-                />
+            }
+            ListFooterComponent={
+              <View>
+                {/* Add Button */}
+                <TouchableOpacity style={[styles.addButton, { backgroundColor: colors.card, borderColor: colors.surface }]} onPress={handleAddSlot}>
+                  <Ionicons name="add" size={20} color={colors.textPrimary} />
+                  <Text style={[styles.addButtonText, { color: colors.textSecondary }]}>Add Activity</Text>
+                </TouchableOpacity>
               </View>
-
-              {/* Add Button */}
-              <TouchableOpacity style={[styles.addButton, { backgroundColor: colors.card, borderColor: colors.surface }]} onPress={handleAddSlot}>
-                <Ionicons name="add" size={20} color={colors.textPrimary} />
-                <Text style={[styles.addButtonText, { color: colors.textSecondary }]}>Add Activity</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </ScrollView>
+            }
+          />
+        )}
 
         {/* Fixed Action Buttons at Bottom */}
         <View style={[styles.actionButtons, { backgroundColor: colors.bgGradient[2] }]}>
@@ -492,8 +494,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 },
   title: { fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
-  scrollView: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
+  listContent: { paddingHorizontal: 20, paddingBottom: 20 },
   themeToggleCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 12, marginBottom: 10 },
   themeToggleContent: { flexDirection: 'row', alignItems: 'center' },
   themeToggleLabel: { fontSize: 14, fontWeight: '600' },
@@ -509,8 +510,7 @@ const styles = StyleSheet.create({
   activitiesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, marginTop: 4 },
   sectionTitle: { fontSize: 14, fontWeight: '600' },
   sectionHint: { fontSize: 10 },
-  loadingContainer: { paddingVertical: 40, alignItems: 'center' },
-  listWrapper: { marginBottom: 10 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   slotItem: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, padding: 10, marginBottom: 8 },
   dragHandle: { padding: 4, marginRight: 4 },
   iconSelector: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
@@ -523,7 +523,7 @@ const styles = StyleSheet.create({
   durationBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
   durationText: { fontSize: 9, fontWeight: '700' },
   deleteButton: { padding: 6, marginLeft: 4 },
-  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', marginBottom: 10 },
+  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', marginBottom: 10, marginTop: 4 },
   addButtonText: { fontSize: 14, fontWeight: '600', marginLeft: 6 },
   actionButtons: { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 10, gap: 10 },
   actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12 },
