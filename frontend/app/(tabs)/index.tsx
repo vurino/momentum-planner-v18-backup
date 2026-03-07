@@ -3,16 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   Pressable,
   Animated,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
+  Dimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons'
 import { LinearGradient } from 'expo-linear-gradient';
 import { format, addDays, subDays, getDay } from 'date-fns';
@@ -20,11 +18,13 @@ import { useTheme } from '../../context/ThemeContext';
 import { ProgressCard } from '../../components/ProgressCard';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Header collapse configuration
-const HEADER_MAX_HEIGHT = 90; // Logo + subtitle height
-const HEADER_MIN_HEIGHT = 0;
-const HEADER_SCROLL_DISTANCE = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
+// Layout constants
+const LOGO_SECTION_HEIGHT = 90;
+const DATE_SECTION_HEIGHT = 60;
+const PROGRESS_CARD_HEIGHT = 110;
+const HEADER_TOTAL_HEIGHT = LOGO_SECTION_HEIGHT + DATE_SECTION_HEIGHT;
 
 interface ScheduleSlot {
   id: string;
@@ -54,7 +54,7 @@ interface ProgressData {
   percentage: number;
 }
 
-// Logo Component - Light gray text
+// Logo Component
 const Logo = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
   return (
     <View style={[styles.logoContainer, { backgroundColor: colors.titleBg }]}>
@@ -78,16 +78,51 @@ const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
     'fast-food': 'fast-food-outline',
     'analytics': 'analytics-outline',
     'settings': 'settings-outline',
-    'code': 'code-outline',
-    'moon': 'moon-outline',
     'bed': 'bed-outline',
-    'clock': 'time-outline',
-    'heart': 'heart-outline',
-    'musical-notes': 'musical-notes-outline',
+    'moon': 'moon-outline',
+    'desktop': 'desktop-outline',
+    'code-slash': 'code-slash-outline',
     'game-controller': 'game-controller-outline',
+    'musical-notes': 'musical-notes-outline',
+    'walk': 'walk-outline',
+    'water': 'water-outline',
+    'leaf': 'leaf-outline',
+    'heart': 'heart-outline',
+    'medkit': 'medkit-outline',
+    'school': 'school-outline',
+    'library': 'library-outline',
+    'pencil': 'pencil-outline',
+    'chatbubbles': 'chatbubbles-outline',
+    'call': 'call-outline',
+    'mail': 'mail-outline',
+    'cart': 'cart-outline',
     'car': 'car-outline',
+    'bicycle': 'bicycle-outline',
+    'airplane': 'airplane-outline',
+    'home': 'home-outline',
+    'construct': 'construct-outline',
+    'hammer': 'hammer-outline',
+    'brush': 'brush-outline',
+    'camera': 'camera-outline',
+    'film': 'film-outline',
+    'tv': 'tv-outline',
+    'wifi': 'wifi-outline',
+    'cloud': 'cloud-outline',
+    'cash': 'cash-outline',
+    'card': 'card-outline',
+    'gift': 'gift-outline',
+    'pizza': 'pizza-outline',
+    'beer': 'beer-outline',
+    'wine': 'wine-outline',
+    'nutrition': 'nutrition-outline',
+    'barbell': 'barbell-outline',
+    'football': 'football-outline',
+    'basketball': 'basketball-outline',
+    'tennisball': 'tennisball-outline',
+    'golf': 'golf-outline',
+    'clock': 'time-outline',
   };
-  return iconMap[iconName] || 'ellipse-outline';
+  return iconMap[iconName] || 'time-outline';
 };
 
 // Embossed Button Component
@@ -136,7 +171,7 @@ const EmbossedButton = ({
   );
 };
 
-// Task Item Component
+// Task Item Component with ROUND checkbox
 const TaskItem = ({ 
   task, 
   onToggle,
@@ -174,13 +209,14 @@ const TaskItem = ({
       onPress={() => onToggle(task.id, !task.completed)}
       activeOpacity={0.7}
     >
+      {/* ROUND Checkbox */}
       <View style={[
         styles.checkbox,
         { borderColor: colors.iconInactive },
         isCompleted && { backgroundColor: colors.success, borderColor: colors.success },
       ]}>
         {isCompleted && (
-          <Ionicons name="checkmark" size={16} color={isDark ? '#0a0e12' : '#fff'} />
+          <Ionicons name="checkmark" size={14} color={isDark ? '#0a0e12' : '#fff'} />
         )}
       </View>
       
@@ -228,7 +264,6 @@ export default function TodayScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   
-  // Scroll animation
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const dateStr = format(currentDate, 'yyyy-MM-dd');
@@ -237,16 +272,13 @@ export default function TodayScreen() {
 
   const fetchData = useCallback(async () => {
     try {
-      // Fetch schedule slots
       const slotsRes = await fetch(`${API_URL}/api/schedule-slots`);
       const slotsData = await slotsRes.json();
       setSlots(slotsData);
 
-      // Fetch daily tasks
       const tasksRes = await fetch(`${API_URL}/api/daily-tasks/${dateStr}`);
       const tasksData = await tasksRes.json();
 
-      // Combine tasks with their slot data
       const tasksWithSlots: TaskWithSlot[] = tasksData.map((task: DailyTask) => {
         const slot = slotsData.find((s: ScheduleSlot) => s.id === task.slot_id);
         return { ...task, slot: slot || { label: 'Unknown', icon: 'clock', start_time: '', end_time: '', group: '', order_index: 0, days: [] } };
@@ -254,7 +286,6 @@ export default function TodayScreen() {
 
       setTasks(tasksWithSlots);
 
-      // Calculate progress
       const total = tasksWithSlots.length;
       const completed = tasksWithSlots.filter((t: TaskWithSlot) => t.completed).length;
       const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -281,17 +312,17 @@ export default function TodayScreen() {
         body: JSON.stringify({ completed }),
       });
 
-      // Update local state
-      setTasks(prev => {
-        const updated = prev.map(t => t.id === taskId ? { ...t, completed } : t);
-        const total = updated.length;
-        const completedCount = updated.filter(t => t.completed).length;
-        const percentage = total > 0 ? Math.round((completedCount / total) * 100) : 0;
-        setProgress({ total, completed: completedCount, percentage });
-        return updated;
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed } : t));
+      setProgress(prev => {
+        const newCompleted = completed ? prev.completed + 1 : prev.completed - 1;
+        return {
+          ...prev,
+          completed: newCompleted,
+          percentage: prev.total > 0 ? Math.round((newCompleted / prev.total) * 100) : 0,
+        };
       });
     } catch (error) {
-      console.error('Error updating task:', error);
+      console.error('Error toggling task:', error);
     }
   };
 
@@ -305,24 +336,42 @@ export default function TodayScreen() {
 
   const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
 
-  // Animated values for collapsing header
-  const headerHeight = scrollY.interpolate({
-    inputRange: [0, HEADER_SCROLL_DISTANCE],
-    outputRange: [HEADER_MAX_HEIGHT, HEADER_MIN_HEIGHT],
+  // Animation interpolations
+  // Header (logo + subtitle) fades out as progress card moves up
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [0, HEADER_TOTAL_HEIGHT / 2, HEADER_TOTAL_HEIGHT],
+    outputRange: [1, 0.3, 0],
     extrapolate: 'clamp',
   });
 
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, HEADER_SCROLL_DISTANCE / 2, HEADER_SCROLL_DISTANCE],
+  // Date section fades out
+  const dateOpacity = scrollY.interpolate({
+    inputRange: [0, DATE_SECTION_HEIGHT, HEADER_TOTAL_HEIGHT],
     outputRange: [1, 0.5, 0],
     extrapolate: 'clamp',
   });
 
-  const dateNavTranslate = scrollY.interpolate({
-    inputRange: [0, HEADER_SCROLL_DISTANCE],
-    outputRange: [0, -HEADER_SCROLL_DISTANCE],
+  // Progress card moves up and becomes sticky
+  const progressTranslateY = scrollY.interpolate({
+    inputRange: [0, HEADER_TOTAL_HEIGHT, HEADER_TOTAL_HEIGHT + 1],
+    outputRange: [0, -HEADER_TOTAL_HEIGHT, -HEADER_TOTAL_HEIGHT],
     extrapolate: 'clamp',
   });
+
+  // Day/Date info fades IN inside progress card as we scroll
+  const progressDateOpacity = scrollY.interpolate({
+    inputRange: [0, HEADER_TOTAL_HEIGHT / 2, HEADER_TOTAL_HEIGHT],
+    outputRange: [0, 0.5, 1],
+    extrapolate: 'clamp',
+  });
+
+  const cardShadow = {
+    shadowColor: isDark ? '#000' : '#999',
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: isDark ? 0.4 : 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  };
 
   return (
     <View style={styles.container}>
@@ -330,17 +379,21 @@ export default function TodayScreen() {
         colors={colors.bgGradient as any}
         style={StyleSheet.absoluteFillObject}
       />
+      
       <View style={[styles.safeArea, { paddingTop: insets.top }]}>
-        {/* Collapsible Header - Logo and Subtitle */}
-        <Animated.View style={[styles.collapsibleHeader, { height: headerHeight, opacity: headerOpacity }]}>
+        {/* Fixed Background Header - Logo and Subtitle */}
+        <Animated.View style={[styles.fixedHeader, { opacity: headerOpacity }]}>
           <Logo isDark={isDark} colors={colors} />
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Stay consistent, stay focused
           </Text>
         </Animated.View>
 
-        {/* Date Navigation - Moves up with scroll */}
-        <Animated.View style={[styles.dateNav, { transform: [{ translateY: dateNavTranslate }] }]}>
+        {/* Fixed Date Navigation */}
+        <Animated.View style={[
+          styles.dateNav, 
+          { top: insets.top + LOGO_SECTION_HEIGHT, opacity: dateOpacity }
+        ]}>
           <EmbossedButton onPress={goToPrevDay} isDark={isDark} colors={colors}>
             <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
           </EmbossedButton>
@@ -359,6 +412,30 @@ export default function TodayScreen() {
           </EmbossedButton>
         </Animated.View>
 
+        {/* Progress Card - Moves up and becomes sticky */}
+        <Animated.View style={[
+          styles.progressCardWrapper,
+          { 
+            top: insets.top + HEADER_TOTAL_HEIGHT,
+            transform: [{ translateY: progressTranslateY }],
+            zIndex: 100,
+          }
+        ]}>
+          <View style={[styles.progressCard, { backgroundColor: colors.card }, cardShadow]}>
+            {/* Left: Progress Circle */}
+            <ProgressCard
+              completed={progress.completed}
+              total={progress.total}
+              isDark={isDark}
+              colors={colors}
+              showDateInfo={true}
+              dateInfoOpacity={progressDateOpacity}
+              dayName={isToday ? 'Today' : dayName}
+              dateText={format(currentDate, 'MMMM d, yyyy')}
+            />
+          </View>
+        </Animated.View>
+
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.accent} />
@@ -366,7 +443,10 @@ export default function TodayScreen() {
         ) : (
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: 10 }]}
+            contentContainerStyle={[
+              styles.scrollContent, 
+              { paddingTop: HEADER_TOTAL_HEIGHT + PROGRESS_CARD_HEIGHT + 20 }
+            ]}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
             onScroll={Animated.event(
@@ -378,17 +458,10 @@ export default function TodayScreen() {
                 refreshing={refreshing}
                 onRefresh={onRefresh}
                 tintColor={colors.accent}
+                progressViewOffset={HEADER_TOTAL_HEIGHT + PROGRESS_CARD_HEIGHT}
               />
             }
           >
-            {/* Progress Card */}
-            <ProgressCard
-              completed={progress.completed}
-              total={progress.total}
-              isDark={isDark}
-              colors={colors}
-            />
-
             {/* Tasks List */}
             <View style={styles.tasksSection}>
               <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Schedule</Text>
@@ -416,8 +489,12 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  collapsibleHeader: {
-    overflow: 'hidden',
+  fixedHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
   },
   logoContainer: {
     marginHorizontal: 20,
@@ -439,12 +516,15 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   dateNav: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 10,
-    zIndex: 10,
+    paddingVertical: 8,
+    zIndex: 2,
   },
   embossedButton: {
     width: 44,
@@ -467,6 +547,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  progressCardWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+  },
+  progressCard: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -479,7 +569,6 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   tasksSection: {
-    marginTop: 8,
     paddingHorizontal: 20,
   },
   sectionTitle: {
@@ -494,10 +583,11 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
   },
+  // ROUND checkbox
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
+    width: 24,
+    height: 24,
+    borderRadius: 12, // Fully round
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',

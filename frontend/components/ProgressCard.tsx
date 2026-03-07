@@ -13,13 +13,15 @@ interface ProgressCardProps {
   total: number;
   isDark: boolean;
   colors: any;
+  showDateInfo?: boolean;
+  dateInfoOpacity?: Animated.AnimatedInterpolation<number>;
+  dayName?: string;
+  dateText?: string;
 }
 
 // Get progress color - progressive gradient from gray to orange
 const getProgressColor = (percentage: number, isDark: boolean): string => {
   if (percentage === 0) return isDark ? '#3a4555' : '#c5c0b5';
-  // Progressive gradient from gray to orange based on percentage
-  // At 0% = gray, at 100% = full orange
   const grayR = isDark ? 58 : 197;
   const grayG = isDark ? 69 : 192;
   const grayB = isDark ? 85 : 181;
@@ -41,6 +43,10 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
   total,
   isDark,
   colors,
+  showDateInfo = false,
+  dateInfoOpacity,
+  dayName = '',
+  dateText = '',
 }) => {
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
   const progressColor = getProgressColor(percentage, isDark);
@@ -71,16 +77,8 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
   const circumference = radius * 2 * Math.PI;
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
-  const cardShadow = {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: isDark ? 0.4 : 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-  };
-
   return (
-    <View style={[styles.container, { backgroundColor: colors.card }, cardShadow]}>
+    <View style={styles.container}>
       {/* Left: Progress Circle */}
       <View style={styles.circleContainer}>
         <Svg width={size} height={size}>
@@ -125,6 +123,18 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
 
       {/* Right: Info & Progress Bar */}
       <View style={styles.infoContainer}>
+        {/* Day/Date info that fades in when sticky */}
+        {showDateInfo && dateInfoOpacity && (
+          <Animated.View style={[styles.dateInfoContainer, { opacity: dateInfoOpacity }]}>
+            <Text style={[styles.dayNameText, { color: colors.textPrimary }]}>
+              {dayName}
+            </Text>
+            <Text style={[styles.dateInfoText, { color: colors.textSecondary }]}>
+              {dateText}
+            </Text>
+          </Animated.View>
+        )}
+        
         <Text style={[styles.activityCount, { color: colors.textSecondary }]}>
           {completed} of {total} activities completed
         </Text>
@@ -153,10 +163,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 14,
     padding: 14,
-    marginHorizontal: 20,
-    marginVertical: 8,
   },
   circleContainer: {
     position: 'relative',
@@ -185,10 +192,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  dateInfoContainer: {
+    marginBottom: 4,
+  },
+  dayNameText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dateInfoText: {
+    fontSize: 11,
+    marginTop: 1,
+  },
   activityCount: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   progressBarBg: {
     height: 6,

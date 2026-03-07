@@ -28,6 +28,7 @@ export default function TabLayout() {
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.iconInactive,
         tabBarLabelStyle: styles.tabBarLabel,
+        tabBarItemStyle: styles.tabBarItem,
         tabBarBackground: () => (
           <View style={[styles.tabBarBackground, { backgroundColor: colors.card }]} />
         ),
@@ -40,6 +41,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, focused }) => (
             <View style={[
               styles.iconContainer,
+              { backgroundColor: focused ? `${colors.accent}20` : 'transparent' },
               focused && {
                 shadowColor: colors.accent,
                 shadowOffset: { width: 0, height: 0 },
@@ -59,6 +61,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, focused }) => (
             <View style={[
               styles.iconContainer,
+              { backgroundColor: focused ? `${colors.accent}20` : 'transparent' },
               focused && {
                 shadowColor: colors.accent,
                 shadowOffset: { width: 0, height: 0 },
@@ -78,6 +81,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, focused }) => (
             <View style={[
               styles.iconContainer,
+              { backgroundColor: focused ? `${colors.accent}20` : 'transparent' },
               focused && {
                 shadowColor: colors.accent,
                 shadowOffset: { width: 0, height: 0 },
@@ -103,7 +107,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 2,
   },
+  tabBarItem: {
+    borderRadius: 16,
+    marginHorizontal: 8,
+    paddingVertical: 4,
+  },
   iconContainer: {
-    padding: 4,
+    padding: 8,
+    borderRadius: 12,
   },
 });
