@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -30,7 +30,7 @@ interface WheelPickerProps {
   onManualInput?: (value: number) => void;
 }
 
-// Wheel Picker with center selection (no tap needed) and manual input
+// Wheel Picker with CENTER SELECTION (no tap needed) + manual keyboard input
 const WheelPicker: React.FC<WheelPickerProps> = ({
   items,
   selectedIndex,
@@ -45,47 +45,41 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
   const scrollViewRef = useRef<ScrollView>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [manualValue, setManualValue] = useState('');
+  const [internalIndex, setInternalIndex] = useState(selectedIndex);
 
+  // Scroll to selected index on mount
   useEffect(() => {
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({
-        y: selectedIndex * ITEM_HEIGHT,
-        animated: false,
-      });
-    }, 50);
-  }, []);
+    if (!isEditing) {
+      const timer = setTimeout(() => {
+        scrollViewRef.current?.scrollTo({
+          y: selectedIndex * ITEM_HEIGHT,
+          animated: false,
+        });
+        setInternalIndex(selectedIndex);
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedIndex, isEditing]);
 
-  // Auto-select on scroll end (center selection - no tap needed)
-  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  // CENTER SELECTION - auto select on scroll end
+  const handleScrollEnd = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
     const index = Math.round(y / ITEM_HEIGHT);
-    if (index >= 0 && index < items.length && index !== selectedIndex) {
-      onSelect(index);
+    const clampedIndex = Math.max(0, Math.min(index, items.length - 1));
+    
+    // Snap to center
+    scrollViewRef.current?.scrollTo({ y: clampedIndex * ITEM_HEIGHT, animated: true });
+    
+    if (clampedIndex !== internalIndex) {
+      setInternalIndex(clampedIndex);
+      onSelect(clampedIndex);
     }
-    scrollViewRef.current?.scrollTo({
-      y: index * ITEM_HEIGHT,
-      animated: true,
-    });
-  };
+  }, [items.length, internalIndex, onSelect]);
 
-  const handleScrollEndDrag = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = event.nativeEvent.contentOffset.y;
-    const index = Math.round(y / ITEM_HEIGHT);
-    if (index >= 0 && index < items.length) {
-      // Snap to closest item
-      scrollViewRef.current?.scrollTo({
-        y: index * ITEM_HEIGHT,
-        animated: true,
-      });
-      if (index !== selectedIndex) {
-        onSelect(index);
-      }
-    }
-  };
-
-  const handleManualSubmit = () => {
+  // Handle manual keyboard input
+  const handleManualSubmit = useCallback(() => {
     if (onManualInput && manualValue && manualInputRange) {
-      const val = parseInt(manualValue);
+      const val = parseInt(manualValue, 10);
       if (!isNaN(val) && val >= manualInputRange.min && val <= manualInputRange.max) {
         onManualInput(val);
       }
@@ -93,25 +87,22 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
     setIsEditing(false);
     setManualValue('');
     Keyboard.dismiss();
-  };
+  }, [manualValue, manualInputRange, onManualInput]);
 
-  // Tap on selected item opens manual input
-  const handleCenterTap = () => {
+  // Tap on center item opens manual input (keyboard appears)
+  const handleCenterTap = useCallback(() => {
     if (allowManualInput) {
       setIsEditing(true);
-      setManualValue(items[selectedIndex]);
+      setManualValue(items[internalIndex]);
     }
-  };
+  }, [allowManualInput, items, internalIndex]);
 
   return (
     <View style={[styles.wheelContainer, { width, height: ITEM_HEIGHT * VISIBLE_ITEMS }]}>
-      <View style={[
-        styles.selectionIndicator,
-        { 
-          backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
-          top: ITEM_HEIGHT,
-        }
-      ]} />
+      <View style={[styles.selectionIndicator, {
+        backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+        top: ITEM_HEIGHT,
+      }]} />
       
       {isEditing ? (
         <View style={[styles.manualInputContainer, { top: ITEM_HEIGHT }]}>
@@ -133,33 +124,30 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
           showsVerticalScrollIndicator={false}
           snapToInterval={ITEM_HEIGHT}
           decelerationRate="fast"
-          onMomentumScrollEnd={handleMomentumScrollEnd}
-          onScrollEndDrag={handleScrollEndDrag}
+          scrollEventThrottle={16}
+          disableIntervalMomentum={true}
+          onMomentumScrollEnd={handleScrollEnd}
+          onScrollEndDrag={handleScrollEnd}
           contentContainerStyle={{ paddingVertical: ITEM_HEIGHT }}
         >
           {items.map((item, index) => {
-            const isSelected = index === selectedIndex;
-            const distance = Math.abs(index - selectedIndex);
+            const isSelected = index === internalIndex;
+            const distance = Math.abs(index - internalIndex);
             const opacity = distance === 0 ? 1 : distance === 1 ? 0.4 : 0.2;
 
             return (
               <TouchableOpacity
-                key={index}
+                key={`${item}-${index}`}
                 style={[styles.wheelItem, { height: ITEM_HEIGHT }]}
                 onPress={isSelected ? handleCenterTap : undefined}
-                activeOpacity={isSelected ? 0.7 : 1}
+                activeOpacity={isSelected && allowManualInput ? 0.7 : 1}
               >
-                <Text
-                  style={[
-                    styles.wheelItemText,
-                    {
-                      color: isSelected ? colors.accent : colors.textSecondary,
-                      opacity,
-                      fontWeight: isSelected ? '700' : '400',
-                      fontSize: isSelected ? 22 : 16,
-                    },
-                  ]}
-                >
+                <Text style={[styles.wheelItemText, {
+                  color: isSelected ? colors.accent : colors.textSecondary,
+                  opacity,
+                  fontWeight: isSelected ? '700' : '400',
+                  fontSize: isSelected ? 22 : 16,
+                }]}>
                   {item}
                 </Text>
               </TouchableOpacity>
@@ -171,7 +159,7 @@ const WheelPicker: React.FC<WheelPickerProps> = ({
   );
 };
 
-// Time Wheel Row with Label on Left
+// Time Wheel Row
 interface TimeWheelRowProps {
   label: string;
   hour: number;
@@ -197,13 +185,12 @@ const TimeWheelRow: React.FC<TimeWheelRowProps> = ({
 }) => {
   // Hours 1-12
   const hours = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
-  // Minutes in 5-minute increments for wheel display
+  // Minutes in 5-minute increments for wheel
   const minutes = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'));
   const periods = ['AM', 'PM'];
 
   const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
   const hourIndex = displayHour - 1;
-  // Find closest 5-minute increment for display
   const minuteIndex = Math.round(minute / 5) % 12;
   const periodIndex = isPM ? 1 : 0;
 
@@ -240,7 +227,7 @@ const TimeWheelRow: React.FC<TimeWheelRowProps> = ({
           allowManualInput
           manualInputRange={{ min: 0, max: 59 }}
           onManualInput={(val) => {
-            // Allow any minute 0-59 via manual input
+            // Allow ANY minute 0-59 via keyboard
             if (val >= 0 && val <= 59) {
               onMinuteChange(val);
             }
@@ -313,7 +300,7 @@ const DurationWheelRow: React.FC<DurationWheelRowProps> = ({
           allowManualInput
           manualInputRange={{ min: 0, max: 59 }}
           onManualInput={(val) => {
-            // Allow any minute 0-59 via manual input
+            // Allow ANY minute 0-59 via keyboard
             if (val >= 0 && val <= 59) {
               onDurationChange(hourIndex * 60 + val);
             }
@@ -381,6 +368,7 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
   const [duration, setDuration] = useState(calcDuration(initial.start.hour, initial.start.minute, initial.end.hour, initial.end.minute));
   const [lastEdited, setLastEdited] = useState<'start' | 'end' | 'duration'>('start');
 
+  // Reset state when modal opens
   useEffect(() => {
     if (visible) {
       const start = parseTime(initialStartTime);
@@ -390,9 +378,11 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
       setEndHour(end.hour);
       setEndMinute(end.minute);
       setDuration(calcDuration(start.hour, start.minute, end.hour, end.minute));
+      setLastEdited('start');
     }
   }, [visible, initialStartTime, initialEndTime]);
 
+  // Auto-calculate end time or duration
   useEffect(() => {
     if (lastEdited === 'start' || lastEdited === 'duration') {
       const newEnd = calcEndTime(startHour, startMinute, duration);
@@ -434,13 +424,11 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
           <View style={[styles.card, { backgroundColor: colors.card }]}>
-            {/* Header */}
             <Text style={[styles.title, { color: colors.textPrimary }]}>Edit Time</Text>
             {taskLabel && (
               <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>{taskLabel}</Text>
             )}
 
-            {/* Start Time Row */}
             <TimeWheelRow
               label="START"
               hour={startHour}
@@ -458,7 +446,6 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
               colors={colors}
             />
 
-            {/* End Time Row */}
             <TimeWheelRow
               label="END"
               hour={endHour}
@@ -476,7 +463,6 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
               colors={colors}
             />
 
-            {/* Duration Row */}
             <DurationWheelRow
               durationMins={duration}
               onDurationChange={handleDurationChange}
@@ -484,7 +470,6 @@ export const TimeEditModal: React.FC<TimeEditModalProps> = ({
               colors={colors}
             />
 
-            {/* Buttons */}
             <View style={styles.buttons}>
               <TouchableOpacity
                 style={[styles.button, { backgroundColor: isDark ? '#1a2230' : '#e8e2d8' }]}
