@@ -7,15 +7,15 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Platform,
   Modal,
   Pressable,
   Dimensions,
   ScrollView,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  FlatList,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
@@ -24,6 +24,10 @@ import { TimeEditModal } from '../../components/TimeEditModal';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Layout constants
+const APPEARANCE_PANEL_HEIGHT = 52;
+const DAY_PANEL_HEIGHT = APPEARANCE_PANEL_HEIGHT * 1.8; // Less than 2x
 
 interface ScheduleSlot {
   id: string;
@@ -71,21 +75,17 @@ const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
   return iconMap[iconName] || 'ellipse-outline';
 };
 
-// Compact Day Wheel - Only shows 3 items
-const DAY_WHEEL_ITEM_HEIGHT = 36;
+// Compact Day Wheel - Center selection (no tap needed)
+const DAY_WHEEL_ITEM_HEIGHT = 32;
 
 const DayWheelSelector = ({
   selectedDays,
   onSelectDays,
-  onScrollStart,
-  onScrollEnd,
   isDark,
   colors,
 }: {
   selectedDays: string[];
   onSelectDays: (days: string[], key: string) => void;
-  onScrollStart?: () => void;
-  onScrollEnd?: () => void;
   isDark: boolean;
   colors: any;
 }) => {
@@ -113,26 +113,33 @@ const DayWheelSelector = ({
     }, 50);
   }, []);
 
-  const handleScrollBeginDrag = () => {
-    onScrollStart?.();
-  };
-
-  const handleScrollEndDrag = () => {
-    onScrollEnd?.();
-  };
-
+  // Center selection - auto select on scroll end
   const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
     const index = Math.round(y / DAY_WHEEL_ITEM_HEIGHT);
     if (index >= 0 && index < DAY_OPTIONS.length) {
       setSelectedIndex(index);
       onSelectDays(DAY_OPTIONS[index].days, DAY_OPTIONS[index].key);
+    }
+    scrollViewRef.current?.scrollTo({
+      y: index * DAY_WHEEL_ITEM_HEIGHT,
+      animated: true,
+    });
+  };
+
+  const handleScrollEndDrag = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const index = Math.round(y / DAY_WHEEL_ITEM_HEIGHT);
+    if (index >= 0 && index < DAY_OPTIONS.length) {
       scrollViewRef.current?.scrollTo({
         y: index * DAY_WHEEL_ITEM_HEIGHT,
         animated: true,
       });
+      if (index !== selectedIndex) {
+        setSelectedIndex(index);
+        onSelectDays(DAY_OPTIONS[index].days, DAY_OPTIONS[index].key);
+      }
     }
-    onScrollEnd?.();
   };
 
   const cardShadow = {
@@ -144,7 +151,7 @@ const DayWheelSelector = ({
   };
 
   return (
-    <View style={[styles.dayWheelContainer, { backgroundColor: colors.card }, cardShadow]}>
+    <View style={[styles.dayWheelContainer, { backgroundColor: colors.card, height: DAY_PANEL_HEIGHT }, cardShadow]}>
       <Text style={[styles.dayWheelLabel, { color: colors.textSecondary }]}>DAY</Text>
       <View style={styles.wheelWrapper}>
         <View style={[
@@ -157,29 +164,19 @@ const DayWheelSelector = ({
           showsVerticalScrollIndicator={false}
           snapToInterval={DAY_WHEEL_ITEM_HEIGHT}
           decelerationRate="fast"
-          nestedScrollEnabled={true}
-          onScrollBeginDrag={handleScrollBeginDrag}
-          onScrollEndDrag={handleScrollEndDrag}
           onMomentumScrollEnd={handleMomentumScrollEnd}
+          onScrollEndDrag={handleScrollEndDrag}
           contentContainerStyle={{ paddingVertical: DAY_WHEEL_ITEM_HEIGHT }}
         >
           {DAY_OPTIONS.map((option, index) => {
             const isSelected = index === selectedIndex;
             const distance = Math.abs(index - selectedIndex);
-            const opacity = distance === 0 ? 1 : 0.3;
+            const opacity = distance === 0 ? 1 : distance === 1 ? 0.35 : 0.15;
 
             return (
-              <TouchableOpacity
+              <View
                 key={option.key}
                 style={[styles.dayWheelItem, { height: DAY_WHEEL_ITEM_HEIGHT }]}
-                onPress={() => {
-                  setSelectedIndex(index);
-                  onSelectDays(option.days, option.key);
-                  scrollViewRef.current?.scrollTo({
-                    y: index * DAY_WHEEL_ITEM_HEIGHT,
-                    animated: true,
-                  });
-                }}
               >
                 <Text style={[
                   styles.dayWheelItemText,
@@ -187,12 +184,12 @@ const DayWheelSelector = ({
                     color: isSelected ? colors.accent : colors.textSecondary,
                     fontWeight: isSelected ? '700' : '400',
                     opacity,
-                    fontSize: isSelected ? 16 : 14,
+                    fontSize: isSelected ? 15 : 13,
                   }
                 ]}>
                   {option.label}
                 </Text>
-              </TouchableOpacity>
+              </View>
             );
           })}
         </ScrollView>
@@ -316,6 +313,7 @@ const SlotEditor = ({
 
 export default function SettingsScreen() {
   const { isDark, colors, toggleTheme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -323,7 +321,6 @@ export default function SettingsScreen() {
   const [selectedDayFilter, setSelectedDayFilter] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
   const [iconPickerSlotId, setIconPickerSlotId] = useState<string | null>(null);
   const [timeEditorSlotId, setTimeEditorSlotId] = useState<string | null>(null);
-  const [isDayWheelScrolling, setIsDayWheelScrolling] = useState(false);
 
   const fetchSlots = useCallback(async () => {
     try {
@@ -370,6 +367,7 @@ export default function SettingsScreen() {
 
   const handleDayFilterChange = (days: string[]) => {
     setSelectedDayFilter(days);
+    // Update all slots to use the new day filter
     setSlots(prev => prev.map(slot => ({ ...slot, days })));
     setHasChanges(true);
   };
@@ -424,69 +422,67 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient colors={colors.bgGradient as any} style={StyleSheet.absoluteFillObject} />
-      <SafeAreaView style={styles.safeArea}>
-        {/* Header - Fixed at top */}
+      
+      <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+        {/* Header - Fixed */}
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.textPrimary }]}>Settings</Text>
         </View>
 
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.accent} />
+        {/* Fixed Panels Section */}
+        <View style={styles.fixedPanels}>
+          {/* Appearance Mode Panel */}
+          <View style={[styles.themeToggleCard, { backgroundColor: colors.card, height: APPEARANCE_PANEL_HEIGHT }, cardShadow]}>
+            <View style={styles.themeToggleContent}>
+              <Ionicons name={isDark ? 'moon' : 'sunny'} size={20} color={colors.accent} />
+              <Text style={[styles.themeToggleLabel, { color: colors.textPrimary }]}>
+                {isDark ? 'Dark Mode' : 'Light Mode'}
+              </Text>
+            </View>
+            <NeumorphicSwitch value={!isDark} onValueChange={() => toggleTheme()} isDark={isDark} colors={colors} />
           </View>
-        ) : (
-          /* Main Scrollable List - DraggableFlatList handles all scrolling */
-          <DraggableFlatList
-            data={slots}
-            keyExtractor={(item) => item.id}
-            onDragEnd={handleDragEnd}
-            renderItem={renderItem}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            activationDistance={15}
-            dragHitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
-            scrollEnabled={!isDayWheelScrolling}
-            ListHeaderComponent={
-              <View>
-                {/* Theme Toggle */}
-                <View style={[styles.themeToggleCard, { backgroundColor: colors.card }, cardShadow]}>
-                  <View style={styles.themeToggleContent}>
-                    <Ionicons name={isDark ? 'moon' : 'sunny'} size={20} color={colors.accent} />
-                    <Text style={[styles.themeToggleLabel, { color: colors.textPrimary, marginLeft: 10 }]}>
-                      {isDark ? 'Dark Mode' : 'Light Mode'}
-                    </Text>
-                  </View>
-                  <NeumorphicSwitch value={!isDark} onValueChange={() => toggleTheme()} isDark={isDark} colors={colors} />
-                </View>
 
-                {/* Day Wheel Selector - Compact */}
-                <DayWheelSelector 
-                  selectedDays={selectedDayFilter} 
-                  onSelectDays={handleDayFilterChange} 
-                  onScrollStart={() => setIsDayWheelScrolling(true)}
-                  onScrollEnd={() => setIsDayWheelScrolling(false)}
-                  isDark={isDark} 
-                  colors={colors} 
-                />
+          {/* Day Panel - Compact with center selection */}
+          <DayWheelSelector 
+            selectedDays={selectedDayFilter} 
+            onSelectDays={handleDayFilterChange} 
+            isDark={isDark} 
+            colors={colors} 
+          />
+        </View>
 
-                {/* Activities Header */}
-                <View style={styles.activitiesHeader}>
-                  <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
-                  <Text style={[styles.sectionHint, { color: colors.textSecondary }]}>Hold & drag to reorder</Text>
-                </View>
-              </View>
-            }
-            ListFooterComponent={
-              <View>
-                {/* Add Button */}
-                <TouchableOpacity style={[styles.addButton, { backgroundColor: colors.card, borderColor: colors.surface }]} onPress={handleAddSlot}>
+        {/* Activities Section - Scrollable */}
+        <View style={styles.activitiesSection}>
+          <View style={styles.activitiesHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
+            <Text style={[styles.sectionHint, { color: colors.textSecondary }]}>Hold & drag to reorder</Text>
+          </View>
+
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.accent} />
+            </View>
+          ) : (
+            <DraggableFlatList
+              data={slots}
+              keyExtractor={(item) => item.id}
+              onDragEnd={handleDragEnd}
+              renderItem={renderItem}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+              activationDistance={10}
+              ListFooterComponent={
+                <TouchableOpacity 
+                  style={[styles.addButton, { backgroundColor: colors.card, borderColor: colors.surface }]} 
+                  onPress={handleAddSlot}
+                >
                   <Ionicons name="add" size={20} color={colors.textPrimary} />
                   <Text style={[styles.addButtonText, { color: colors.textSecondary }]}>Add Activity</Text>
                 </TouchableOpacity>
-              </View>
-            }
-          />
-        )}
+              }
+            />
+          )}
+        </View>
 
         {/* Fixed Action Buttons at Bottom */}
         <View style={[styles.actionButtons, { backgroundColor: colors.bgGradient[2] }]}>
@@ -506,7 +502,7 @@ export default function SettingsScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
 
       <IconPickerModal visible={!!iconPickerSlotId} onClose={() => setIconPickerSlotId(null)} onSelect={(icon) => { if (iconPickerSlotId) handleUpdateSlot(iconPickerSlotId, { icon }); setIconPickerSlotId(null); }} currentIcon={currentSlotForIcon?.icon || 'clock'} isDark={isDark} colors={colors} />
       <TimeEditModal visible={!!timeEditorSlotId} onClose={() => setTimeEditorSlotId(null)} onSave={(s, e) => { if (timeEditorSlotId) handleUpdateSlot(timeEditorSlotId, { start_time: s, end_time: e }); setTimeEditorSlotId(null); }} initialStartTime={currentSlotForTime?.start_time || '09:00'} initialEndTime={currentSlotForTime?.end_time || '10:00'} taskLabel={currentSlotForTime?.label} isDark={isDark} colors={colors} />
@@ -519,23 +515,76 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 },
   title: { fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
-  listContent: { paddingHorizontal: 20, paddingBottom: 20 },
-  themeToggleCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 12, marginBottom: 10 },
+  
+  // Fixed panels section
+  fixedPanels: {
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  
+  themeToggleCard: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 14,
+    borderRadius: 12, 
+    marginBottom: 10 
+  },
   themeToggleContent: { flexDirection: 'row', alignItems: 'center' },
-  themeToggleLabel: { fontSize: 14, fontWeight: '600' },
+  themeToggleLabel: { fontSize: 14, fontWeight: '600', marginLeft: 10 },
   neumorphicSwitch: { width: 48, height: 24, borderRadius: 12, flexDirection: 'row', alignItems: 'center' },
   switchThumb: { width: 20, height: 20, borderRadius: 10 },
-  dayWheelContainer: { padding: 12, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
-  dayWheelLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginBottom: 4 },
-  wheelWrapper: { height: DAY_WHEEL_ITEM_HEIGHT * 3, width: '100%', overflow: 'hidden', position: 'relative' },
-  wheelSelectionIndicator: { position: 'absolute', top: DAY_WHEEL_ITEM_HEIGHT, left: 0, right: 0, height: DAY_WHEEL_ITEM_HEIGHT, borderRadius: 8, zIndex: -1 },
+  
+  // Day wheel - more compact
+  dayWheelContainer: { 
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12, 
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
+  dayWheelLabel: { 
+    fontSize: 10, 
+    fontWeight: '700', 
+    letterSpacing: 1.5, 
+    marginRight: 12,
+  },
+  wheelWrapper: { 
+    height: DAY_WHEEL_ITEM_HEIGHT * 3, 
+    flex: 1, 
+    overflow: 'hidden', 
+    position: 'relative' 
+  },
+  wheelSelectionIndicator: { 
+    position: 'absolute', 
+    top: DAY_WHEEL_ITEM_HEIGHT, 
+    left: 0, 
+    right: 0, 
+    height: DAY_WHEEL_ITEM_HEIGHT, 
+    borderRadius: 6, 
+    zIndex: -1 
+  },
   dayWheel: { flex: 1 },
   dayWheelItem: { justifyContent: 'center', alignItems: 'center' },
   dayWheelItemText: {},
-  activitiesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, marginTop: 4 },
+  
+  // Activities section
+  activitiesSection: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  activitiesHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 8,
+  },
   sectionTitle: { fontSize: 14, fontWeight: '600' },
   sectionHint: { fontSize: 10 },
+  
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  listContent: { paddingBottom: 10 },
+  
   slotItem: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, padding: 10, marginBottom: 8 },
   dragHandle: { padding: 4, marginRight: 4 },
   iconSelector: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
@@ -547,12 +596,24 @@ const styles = StyleSheet.create({
   timeDisplayText: { fontSize: 12, fontWeight: '500', flex: 1 },
   durationBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
   durationText: { fontSize: 9, fontWeight: '700' },
-  deleteButton: { padding: 6, marginLeft: 4 },
-  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', marginBottom: 10, marginTop: 4 },
+  deleteButton: { padding: 8, marginLeft: 4 },
+  
+  addButton: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    paddingVertical: 10, 
+    borderRadius: 12, 
+    borderWidth: 1, 
+    borderStyle: 'dashed', 
+    marginTop: 4 
+  },
   addButtonText: { fontSize: 14, fontWeight: '600', marginLeft: 6 },
+  
   actionButtons: { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 10, gap: 10 },
   actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12 },
   actionButtonText: { fontSize: 14, fontWeight: '600', marginLeft: 6 },
+  
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   iconPickerModal: { width: SCREEN_WIDTH - 40, maxWidth: 320, borderRadius: 16, padding: 16 },
   iconPickerTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
