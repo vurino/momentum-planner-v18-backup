@@ -10,6 +10,10 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -239,7 +243,7 @@ const TaskItem = ({
   task: TaskWithSlot; 
   onToggle: (taskId: string, completed: boolean) => void;
   onFocus: (task: TaskWithSlot) => void;
-  onNotesPress?: (task: TaskWithSlot) => void;
+  onNotesPress: (task: TaskWithSlot) => void;
   isDark: boolean;
   colors: any;
   fadeOpacity?: Animated.AnimatedInterpolation<number>;
@@ -320,20 +324,22 @@ const TaskItem = ({
           )}
         </View>
 
-        {/* Right side icons */}
+        {/* Right side icons - Notes icon always visible */}
         <View style={styles.taskActions}>
-          {/* Notes icon */}
-          {hasNotes && (
-            <TouchableOpacity 
-              style={[styles.notesButton, { backgroundColor: colors.surface }]}
-              onPress={(e) => {
-                e.stopPropagation();
-                onNotesPress?.(task);
-              }}
-            >
-              <Ionicons name="document-text-outline" size={16} color={colors.textSecondary} />
-            </TouchableOpacity>
-          )}
+          {/* Notes icon - always show, filled if has notes */}
+          <TouchableOpacity 
+            style={[styles.notesButton, { backgroundColor: colors.surface }]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onNotesPress(task);
+            }}
+          >
+            <Ionicons 
+              name={hasNotes ? "document-text" : "document-text-outline"} 
+              size={16} 
+              color={hasNotes ? colors.accent : colors.textInactive} 
+            />
+          </TouchableOpacity>
           
           {/* Focus button for current task */}
           {isCurrent && !isCompleted && (
@@ -354,16 +360,13 @@ const TaskItem = ({
 };
 
 // =============================================================================
-// PROGRESS CARD - Pastel green color
+// PROGRESS CARD - Rectangular with Day/Date on top
 // =============================================================================
 const ProgressCard = ({ 
   completed, 
   total, 
   dayName, 
   dateText,
-  showDateInfo,
-  dateInfoOpacity,
-  barPosition,
   isDark, 
   colors 
 }: { 
@@ -371,9 +374,6 @@ const ProgressCard = ({
   total: number; 
   dayName: string;
   dateText: string;
-  showDateInfo: boolean;
-  dateInfoOpacity: Animated.AnimatedInterpolation<number>;
-  barPosition: Animated.AnimatedInterpolation<number>;
   isDark: boolean; 
   colors: any;
 }) => {
@@ -392,79 +392,144 @@ const ProgressCard = ({
     }).start();
   }, [percentage]);
 
-  const size = 64;
-  const strokeWidth = 5;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = radius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
-
-  // Import SVG components
-  const Svg = require('react-native-svg').default;
-  const { Circle } = require('react-native-svg');
-
   return (
     <View style={[styles.progressCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
-      {/* Day/Date info - fades in on scroll */}
-      <Animated.View style={[styles.progressDateInfo, { opacity: dateInfoOpacity }]}>
+      {/* Day and Date - Always visible at top */}
+      <View style={styles.progressDateRow}>
         <Text style={[styles.progressDayName, { color: colors.textPrimary }]}>{dayName}</Text>
+        <Text style={[styles.progressDateDivider, { color: colors.textInactive }]}>•</Text>
         <Text style={[styles.progressDateText, { color: colors.textInactive }]}>{dateText}</Text>
-      </Animated.View>
+      </View>
       
-      {/* Main progress content */}
-      <Animated.View style={[styles.progressContent, { marginTop: barPosition }]}>
-        {/* Progress Circle */}
-        <View style={styles.progressCircleContainer}>
-          <Svg width={size} height={size}>
-            <Circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              stroke={isDark ? '#2a3344' : '#d5d0c5'}
-              strokeWidth={strokeWidth}
-              fill="none"
-            />
-            <Circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              stroke={progressColor}
-              strokeWidth={strokeWidth}
-              fill="none"
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={strokeDashoffset}
-              transform={`rotate(-90 ${size / 2} ${size / 2})`}
-            />
-          </Svg>
-          <View style={styles.progressCircleText}>
-            <Text style={[styles.progressPercentage, { color: progressColor }]}>{percentage}%</Text>
-          </View>
+      {/* Completion count */}
+      <Text style={[styles.progressActivityCount, { color: colors.textSecondary }]}>
+        {completed} of {total} completed
+      </Text>
+      
+      {/* Progress Bar */}
+      <View style={styles.progressBarRow}>
+        <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
+          <Animated.View
+            style={[
+              styles.progressBarFill,
+              {
+                backgroundColor: progressColor,
+                width: barWidthAnim.interpolate({
+                  inputRange: [0, 100],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]}
+          />
         </View>
-        
-        {/* Info */}
-        <View style={styles.progressInfo}>
-          <Text style={[styles.progressActivityCount, { color: colors.textSecondary }]}>
-            {completed} of {total} completed
-          </Text>
-          
-          {/* Progress Bar - centered */}
-          <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
-            <Animated.View
-              style={[
-                styles.progressBarFill,
-                {
-                  backgroundColor: progressColor,
-                  width: barWidthAnim.interpolate({
-                    inputRange: [0, 100],
-                    outputRange: ['0%', '100%'],
-                  }),
-                },
-              ]}
-            />
-          </View>
-        </View>
-      </Animated.View>
+        <Text style={[styles.progressPercentageSmall, { color: progressColor }]}>{percentage}%</Text>
+      </View>
     </View>
+  );
+};
+
+// =============================================================================
+// NOTES EDIT MODAL
+// =============================================================================
+const NotesEditModal = ({
+  visible,
+  task,
+  onClose,
+  onSave,
+  isDark,
+  colors,
+}: {
+  visible: boolean;
+  task: TaskWithSlot | null;
+  onClose: () => void;
+  onSave: (slotId: string, notes: string) => void;
+  isDark: boolean;
+  colors: any;
+}) => {
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (task) {
+      setNotes(task.slot.notes || '');
+    }
+  }, [task]);
+
+  const handleSave = () => {
+    if (task) {
+      onSave(task.slot.id, notes);
+    }
+    onClose();
+  };
+
+  if (!task) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.modalOverlay}
+      >
+        <Pressable style={styles.modalOverlay} onPress={onClose}>
+          <Pressable 
+            style={[styles.notesModal, { backgroundColor: colors.card }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <View style={styles.notesModalHeader}>
+              <View style={styles.notesModalTitleRow}>
+                <Ionicons name={getIconName(task.slot.icon)} size={20} color={colors.accent} />
+                <Text style={[styles.notesModalTitle, { color: colors.textPrimary }]}>
+                  {task.slot.label}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onClose}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.notesModalDivider, { backgroundColor: colors.divider }]} />
+
+            {/* Notes Input */}
+            <Text style={[styles.notesModalLabel, { color: colors.textInactive }]}>NOTES</Text>
+            <TextInput
+              style={[
+                styles.notesInput,
+                { 
+                  backgroundColor: colors.surface, 
+                  color: colors.textPrimary,
+                  borderColor: colors.accent,
+                }
+              ]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Add notes for this task..."
+              placeholderTextColor={colors.textInactive}
+              multiline
+              numberOfLines={5}
+              textAlignVertical="top"
+              autoFocus
+            />
+
+            {/* Buttons */}
+            <View style={styles.notesModalButtons}>
+              <TouchableOpacity 
+                style={[styles.notesModalBtn, { backgroundColor: colors.surface }]}
+                onPress={onClose}
+              >
+                <Text style={[styles.notesModalBtnText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.notesModalBtn, { backgroundColor: colors.accent }]}
+                onPress={handleSave}
+              >
+                <Ionicons name="checkmark" size={18} color="#fff" />
+                <Text style={[styles.notesModalBtnText, { color: '#fff' }]}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 };
 
@@ -480,6 +545,8 @@ export default function TodayScreen() {
   const [progress, setProgress] = useState<ProgressData>({ total: 0, completed: 0, percentage: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [notesModalVisible, setNotesModalVisible] = useState(false);
+  const [selectedTaskForNotes, setSelectedTaskForNotes] = useState<TaskWithSlot | null>(null);
   
   const scrollY = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef<FlatList>(null);
@@ -588,6 +655,31 @@ export default function TodayScreen() {
     });
   };
 
+  const handleNotesPress = (task: TaskWithSlot) => {
+    setSelectedTaskForNotes(task);
+    setNotesModalVisible(true);
+  };
+
+  const handleSaveNotes = async (slotId: string, notes: string) => {
+    try {
+      // Update the slot in the backend
+      await fetch(`${API_URL}/api/schedule-slots/${slotId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      });
+      
+      // Update local state
+      setTasks(prev => prev.map(t => 
+        t.slot.id === slotId 
+          ? { ...t, slot: { ...t.slot, notes } }
+          : t
+      ));
+    } catch (error) {
+      console.error('Error saving notes:', error);
+    }
+  };
+
   // Scroll animations
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT / 2, HEADER_HEIGHT],
@@ -627,10 +719,7 @@ export default function TodayScreen() {
       task={item}
       onToggle={handleToggleTask}
       onFocus={handleFocusMode}
-      onNotesPress={(task) => {
-        // TODO: Open notes modal
-        console.log('Notes pressed for:', task.slot.label);
-      }}
+      onNotesPress={handleNotesPress}
       isDark={isDark}
       colors={colors}
       fadeOpacity={getTaskFadeOpacity(index)}
@@ -687,9 +776,6 @@ export default function TodayScreen() {
             total={progress.total}
             dayName={isToday ? 'Today' : dayName}
             dateText={format(currentDate, 'MMMM d, yyyy')}
-            showDateInfo={true}
-            dateInfoOpacity={dateInfoOpacity}
-            barPosition={barPosition}
             isDark={isDark}
             colors={colors}
           />
@@ -733,6 +819,19 @@ export default function TodayScreen() {
           />
         )}
       </View>
+
+      {/* Notes Edit Modal */}
+      <NotesEditModal
+        visible={notesModalVisible}
+        task={selectedTaskForNotes}
+        onClose={() => {
+          setNotesModalVisible(false);
+          setSelectedTaskForNotes(null);
+        }}
+        onSave={handleSaveNotes}
+        isDark={isDark}
+        colors={colors}
+      />
     </View>
   );
 }
@@ -807,16 +906,52 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     overflow: 'hidden',
   },
-  progressDateInfo: {
-    marginBottom: SPACING.xs,
+  progressDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   progressDayName: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
   },
+  progressDateDivider: {
+    fontSize: 14,
+    marginHorizontal: 8,
+  },
   progressDateText: {
-    fontSize: 11,
-    marginTop: 1,
+    fontSize: 14,
+  },
+  progressActivityCount: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: SPACING.sm,
+  },
+  progressBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  progressBarBg: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  progressPercentageSmall: {
+    fontSize: 14,
+    fontWeight: '700',
+    minWidth: 40,
+    textAlign: 'right',
+  },
+  
+  // Old styles (keep for compatibility)
+  progressDateInfo: {
+    marginBottom: SPACING.xs,
   },
   progressContent: {
     flexDirection: 'row',
@@ -840,20 +975,6 @@ const styles = StyleSheet.create({
   },
   progressInfo: {
     flex: 1,
-  },
-  progressActivityCount: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: SPACING.sm,
-  },
-  progressBarBg: {
-    height: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3,
   },
   
   loadingContainer: {
@@ -948,5 +1069,76 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     textDecorationStyle: 'solid',
     opacity: 0.7,
+  },
+  
+  // Notes Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  notesModal: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 18,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  notesModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  notesModalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  notesModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  notesModalDivider: {
+    height: 1,
+    marginBottom: 16,
+  },
+  notesModalLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  notesInput: {
+    fontSize: 14,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 120,
+    borderWidth: 2,
+    marginBottom: 16,
+  },
+  notesModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  notesModalBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 6,
+  },
+  notesModalBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
