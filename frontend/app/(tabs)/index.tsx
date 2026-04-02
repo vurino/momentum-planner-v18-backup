@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,22 +9,20 @@ import {
   Pressable,
   Animated,
   Dimensions,
+  FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons'
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { format, addDays, subDays, getDay } from 'date-fns';
-import { useTheme } from '../../context/ThemeContext';
-import { ProgressCard } from '../../components/ProgressCard';
+import { format, addDays, subDays, getDay, parse, isWithinInterval, isBefore, isAfter } from 'date-fns';
+import { useTheme, getCardShadow, getActiveGlow, getSuccessGlow, SPACING } from '../../context/ThemeContext';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Layout constants
-const LOGO_SECTION_HEIGHT = 90;
-const DATE_SECTION_HEIGHT = 60;
-const PROGRESS_CARD_HEIGHT = 110;
-const HEADER_TOTAL_HEIGHT = LOGO_SECTION_HEIGHT + DATE_SECTION_HEIGHT;
+const PROGRESS_CARD_HEIGHT = 100;
+const HEADER_HEIGHT = 140; // Logo + subtitle + date nav
 
 interface ScheduleSlot {
   id: string;
@@ -46,6 +44,8 @@ interface DailyTask {
 
 interface TaskWithSlot extends DailyTask {
   slot: ScheduleSlot;
+  isCurrentTask?: boolean;
+  overlappingWith?: string;
 }
 
 interface ProgressData {
@@ -54,105 +54,88 @@ interface ProgressData {
   percentage: number;
 }
 
-// Logo Component
-const Logo = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
-  return (
-    <View style={[styles.logoContainer, { backgroundColor: colors.titleBg }]}>
-      <Text style={[styles.logoText, { color: colors.logoText }]}>
-        Momentum Planner
-      </Text>
-    </View>
-  );
-};
-
-// Icon mapping for Ionicons
+// Icon mapping
 const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
   const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-    'restaurant': 'restaurant-outline',
-    'sunny': 'sunny-outline',
-    'briefcase': 'briefcase-outline',
-    'cafe': 'cafe-outline',
-    'trending-up': 'trending-up-outline',
-    'book': 'book-outline',
-    'fitness': 'fitness-outline',
-    'fast-food': 'fast-food-outline',
-    'analytics': 'analytics-outline',
-    'settings': 'settings-outline',
-    'bed': 'bed-outline',
-    'moon': 'moon-outline',
-    'desktop': 'desktop-outline',
-    'code-slash': 'code-slash-outline',
-    'game-controller': 'game-controller-outline',
-    'musical-notes': 'musical-notes-outline',
-    'walk': 'walk-outline',
-    'water': 'water-outline',
-    'leaf': 'leaf-outline',
-    'heart': 'heart-outline',
-    'medkit': 'medkit-outline',
-    'school': 'school-outline',
-    'library': 'library-outline',
-    'pencil': 'pencil-outline',
-    'chatbubbles': 'chatbubbles-outline',
-    'call': 'call-outline',
-    'mail': 'mail-outline',
-    'cart': 'cart-outline',
-    'car': 'car-outline',
-    'bicycle': 'bicycle-outline',
-    'airplane': 'airplane-outline',
-    'home': 'home-outline',
-    'construct': 'construct-outline',
-    'hammer': 'hammer-outline',
-    'brush': 'brush-outline',
-    'camera': 'camera-outline',
-    'film': 'film-outline',
-    'tv': 'tv-outline',
-    'wifi': 'wifi-outline',
-    'cloud': 'cloud-outline',
-    'cash': 'cash-outline',
-    'card': 'card-outline',
-    'gift': 'gift-outline',
-    'pizza': 'pizza-outline',
-    'beer': 'beer-outline',
-    'wine': 'wine-outline',
-    'nutrition': 'nutrition-outline',
-    'barbell': 'barbell-outline',
-    'football': 'football-outline',
-    'basketball': 'basketball-outline',
-    'tennisball': 'tennisball-outline',
-    'golf': 'golf-outline',
-    'clock': 'time-outline',
+    'restaurant': 'restaurant-outline', 'sunny': 'sunny-outline', 'briefcase': 'briefcase-outline',
+    'cafe': 'cafe-outline', 'trending-up': 'trending-up-outline', 'book': 'book-outline',
+    'fitness': 'fitness-outline', 'fast-food': 'fast-food-outline', 'analytics': 'analytics-outline',
+    'code': 'code-outline', 'moon': 'moon-outline', 'bed': 'bed-outline', 'time': 'time-outline',
+    'heart': 'heart-outline', 'musical-notes': 'musical-notes-outline', 'clock': 'time-outline',
+    'game-controller': 'game-controller-outline', 'car': 'car-outline', 'home': 'home-outline',
+    'pencil': 'pencil-outline', 'school': 'school-outline', 'walk': 'walk-outline',
+    'water': 'water-outline', 'leaf': 'leaf-outline', 'medkit': 'medkit-outline',
   };
   return iconMap[iconName] || 'time-outline';
 };
 
-// Embossed Button Component
-const EmbossedButton = ({ 
-  onPress, 
-  children, 
-  style,
-  isDark,
-  colors,
-}: { 
-  onPress: () => void; 
-  children: React.ReactNode; 
-  style?: any;
-  isDark: boolean;
-  colors: any;
+// Parse time string to minutes since midnight
+const parseTimeToMinutes = (time: string): number => {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+// Check if current time is within task time range
+const isCurrentTask = (startTime: string, endTime: string): boolean => {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = parseTimeToMinutes(startTime);
+  let endMinutes = parseTimeToMinutes(endTime);
+  
+  // Handle overnight tasks
+  if (endMinutes < startMinutes) {
+    endMinutes += 24 * 60;
+    if (currentMinutes < startMinutes) {
+      return currentMinutes + 24 * 60 >= startMinutes && currentMinutes + 24 * 60 <= endMinutes;
+    }
+  }
+  
+  return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+};
+
+// Check for overlapping tasks
+const findOverlappingTasks = (tasks: TaskWithSlot[]): TaskWithSlot[] => {
+  return tasks.map((task, index) => {
+    const taskStart = parseTimeToMinutes(task.slot.start_time);
+    const taskEnd = parseTimeToMinutes(task.slot.end_time);
+    
+    for (let i = 0; i < tasks.length; i++) {
+      if (i === index) continue;
+      const otherStart = parseTimeToMinutes(tasks[i].slot.start_time);
+      const otherEnd = parseTimeToMinutes(tasks[i].slot.end_time);
+      
+      // Check overlap
+      if ((taskStart < otherEnd && taskEnd > otherStart) || 
+          (otherStart < taskEnd && otherEnd > taskStart)) {
+        return { ...task, overlappingWith: tasks[i].slot.label };
+      }
+    }
+    return task;
+  });
+};
+
+// Get day type
+const getDayType = (date: Date): string => {
+  const day = getDay(date);
+  return day === 0 || day === 6 ? 'Weekend' : 'Weekday';
+};
+
+// =============================================================================
+// LOGO COMPONENT
+// =============================================================================
+const Logo = ({ isDark, colors }: { isDark: boolean; colors: any }) => (
+  <View style={[styles.logoContainer, { backgroundColor: colors.titleBg }]}>
+    <Text style={[styles.logoText, { color: colors.logoText }]}>Momentum Planner</Text>
+  </View>
+);
+
+// =============================================================================
+// EMBOSSED BUTTON
+// =============================================================================
+const EmbossedButton = ({ onPress, children, isDark, colors }: { 
+  onPress: () => void; children: React.ReactNode; isDark: boolean; colors: any;
 }) => {
   const [isPressed, setIsPressed] = useState(false);
-
-  const buttonShadow = isPressed ? {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 1, height: 1 },
-    shadowOpacity: isDark ? 0.4 : 0.1,
-    shadowRadius: 2,
-  } : {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: isDark ? 0.4 : 0.1,
-    shadowRadius: 8,
-  };
-
   return (
     <Pressable
       onPress={onPress}
@@ -161,9 +144,8 @@ const EmbossedButton = ({
       style={[
         styles.embossedButton,
         { backgroundColor: colors.card },
-        buttonShadow,
-        isPressed && styles.embossedButtonPressed,
-        style,
+        getCardShadow(isDark),
+        isPressed && { transform: [{ scale: 0.96 }] },
       ]}
     >
       {children}
@@ -171,89 +153,280 @@ const EmbossedButton = ({
   );
 };
 
-// Task Item Component with ROUND checkbox
+// =============================================================================
+// ANIMATED CHECKBOX - Scale + glow pulse + fade-in check
+// =============================================================================
+const AnimatedCheckbox = ({ 
+  isCompleted, 
+  onToggle, 
+  colors, 
+  isDark 
+}: { 
+  isCompleted: boolean; 
+  onToggle: () => void; 
+  colors: any; 
+  isDark: boolean;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const checkOpacity = useRef(new Animated.Value(isCompleted ? 1 : 0)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isCompleted) {
+      // Scale up + glow pulse + fade in check
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(scaleAnim, { toValue: 1.2, duration: 150, useNativeDriver: true }),
+          Animated.timing(scaleAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
+        ]),
+        Animated.sequence([
+          Animated.timing(glowAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 300, useNativeDriver: false }),
+        ]),
+        Animated.timing(checkOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      ]).start();
+    } else {
+      checkOpacity.setValue(0);
+      glowAnim.setValue(0);
+    }
+  }, [isCompleted]);
+
+  const handlePress = () => {
+    // Quick feedback animation
+    Animated.sequence([
+      Animated.timing(scaleAnim, { toValue: 0.9, duration: 50, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 1, duration: 50, useNativeDriver: true }),
+    ]).start();
+    onToggle();
+  };
+
+  const glowStyle = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 8],
+  });
+
+  return (
+    <TouchableOpacity onPress={handlePress} activeOpacity={0.8}>
+      <Animated.View style={[
+        styles.checkbox,
+        { 
+          borderColor: isCompleted ? colors.success : colors.iconInactive,
+          backgroundColor: isCompleted ? colors.success : 'transparent',
+          transform: [{ scale: scaleAnim }],
+        },
+      ]}>
+        <Animated.View style={{ opacity: checkOpacity }}>
+          <Ionicons name="checkmark" size={14} color={isDark ? '#0a0e12' : '#fff'} />
+        </Animated.View>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
+// =============================================================================
+// TASK ITEM - With overlapping warning and current task highlight
+// =============================================================================
 const TaskItem = ({ 
   task, 
   onToggle,
   isDark,
   colors,
+  fadeOpacity,
 }: { 
   task: TaskWithSlot; 
   onToggle: (taskId: string, completed: boolean) => void;
   isDark: boolean;
   colors: any;
+  fadeOpacity?: Animated.AnimatedInterpolation<number>;
 }) => {
   const isCompleted = task.completed;
+  const isCurrent = task.isCurrentTask;
 
-  const cardShadow = {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: isDark ? 0.4 : 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-  };
+  // Only highlight the checkbox icon when completed, not the whole card
+  const cardStyle = [
+    styles.taskItem,
+    { backgroundColor: colors.card },
+    getCardShadow(isDark),
+    isCurrent && !isCompleted && getActiveGlow(colors), // Orange glow for current task
+  ];
 
   return (
-    <TouchableOpacity
-      style={[
-        styles.taskItem,
-        { backgroundColor: colors.card },
-        cardShadow,
-        isCompleted && {
-          borderColor: colors.success,
-          borderWidth: 1,
-          shadowColor: colors.success,
-          shadowOpacity: isDark ? 0.2 : 0.15,
-        },
-      ]}
-      onPress={() => onToggle(task.id, !task.completed)}
-      activeOpacity={0.7}
-    >
-      {/* ROUND Checkbox */}
-      <View style={[
-        styles.checkbox,
-        { borderColor: colors.iconInactive },
-        isCompleted && { backgroundColor: colors.success, borderColor: colors.success },
-      ]}>
-        {isCompleted && (
-          <Ionicons name="checkmark" size={14} color={isDark ? '#0a0e12' : '#fff'} />
-        )}
-      </View>
-      
-      <View style={[
-        styles.taskIconContainer,
-        { backgroundColor: colors.surface },
-        isCompleted && { backgroundColor: `${colors.success}20` },
-      ]}>
-        <Ionicons 
-          name={getIconName(task.slot.icon)} 
-          size={20} 
-          color={isCompleted ? colors.success : colors.iconInactive} 
+    <Animated.View style={[{ opacity: fadeOpacity || 1 }]}>
+      <View style={cardStyle}>
+        {/* Animated Checkbox */}
+        <AnimatedCheckbox
+          isCompleted={isCompleted}
+          onToggle={() => onToggle(task.id, !task.completed)}
+          colors={colors}
+          isDark={isDark}
         />
-      </View>
-      
-      <View style={styles.taskContent}>
-        <Text style={[
-          styles.taskLabel,
-          { color: colors.textPrimary },
-          isCompleted && { color: colors.success },
+        
+        {/* Icon */}
+        <View style={[
+          styles.taskIconContainer,
+          { backgroundColor: colors.surface },
+          isCompleted && { backgroundColor: colors.successGlow },
         ]}>
-          {task.slot.label}
-        </Text>
-        <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
-          {task.slot.start_time} — {task.slot.end_time}
-        </Text>
+          <Ionicons 
+            name={getIconName(task.slot.icon)} 
+            size={20} 
+            color={isCompleted ? colors.success : isCurrent ? colors.accent : colors.iconInactive} 
+          />
+        </View>
+        
+        {/* Content */}
+        <View style={styles.taskContent}>
+          <View style={styles.taskHeader}>
+            <Text style={[
+              styles.taskLabel,
+              { color: isCompleted ? colors.success : colors.textPrimary },
+            ]} numberOfLines={1}>
+              {task.slot.label}
+            </Text>
+            {isCurrent && !isCompleted && (
+              <View style={[styles.currentBadge, { backgroundColor: colors.accentGlow }]}>
+                <Text style={[styles.currentBadgeText, { color: colors.accent }]}>NOW</Text>
+              </View>
+            )}
+          </View>
+          
+          <Text style={[styles.taskTime, { color: colors.textInactive }]}>
+            {task.slot.start_time} — {task.slot.end_time}
+          </Text>
+          
+          {/* Overlapping warning */}
+          {task.overlappingWith && !isCompleted && (
+            <View style={styles.warningRow}>
+              <Ionicons name="warning-outline" size={12} color={colors.warning} />
+              <Text style={[styles.warningText, { color: colors.warning }]}>
+                Overlaps with {task.overlappingWith}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
-    </TouchableOpacity>
+    </Animated.View>
   );
 };
 
-// Get day type based on day of week
-const getDayType = (date: Date): string => {
-  const day = getDay(date);
-  return day === 0 || day === 6 ? 'Weekend' : 'Weekday';
+// =============================================================================
+// PROGRESS CARD - Pastel green color
+// =============================================================================
+const ProgressCard = ({ 
+  completed, 
+  total, 
+  dayName, 
+  dateText,
+  showDateInfo,
+  dateInfoOpacity,
+  barPosition,
+  isDark, 
+  colors 
+}: { 
+  completed: number; 
+  total: number; 
+  dayName: string;
+  dateText: string;
+  showDateInfo: boolean;
+  dateInfoOpacity: Animated.AnimatedInterpolation<number>;
+  barPosition: Animated.AnimatedInterpolation<number>;
+  isDark: boolean; 
+  colors: any;
+}) => {
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  
+  // Pastel green color for progress
+  const progressColor = colors.progressGreen;
+  
+  const barWidthAnim = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    Animated.timing(barWidthAnim, {
+      toValue: percentage,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [percentage]);
+
+  const size = 64;
+  const strokeWidth = 5;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+  // Import SVG components
+  const Svg = require('react-native-svg').default;
+  const { Circle } = require('react-native-svg');
+
+  return (
+    <View style={[styles.progressCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
+      {/* Day/Date info - fades in on scroll */}
+      <Animated.View style={[styles.progressDateInfo, { opacity: dateInfoOpacity }]}>
+        <Text style={[styles.progressDayName, { color: colors.textPrimary }]}>{dayName}</Text>
+        <Text style={[styles.progressDateText, { color: colors.textInactive }]}>{dateText}</Text>
+      </Animated.View>
+      
+      {/* Main progress content */}
+      <Animated.View style={[styles.progressContent, { marginTop: barPosition }]}>
+        {/* Progress Circle */}
+        <View style={styles.progressCircleContainer}>
+          <Svg width={size} height={size}>
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              stroke={isDark ? '#2a3344' : '#d5d0c5'}
+              strokeWidth={strokeWidth}
+              fill="none"
+            />
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              stroke={progressColor}
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          </Svg>
+          <View style={styles.progressCircleText}>
+            <Text style={[styles.progressPercentage, { color: progressColor }]}>{percentage}%</Text>
+          </View>
+        </View>
+        
+        {/* Info */}
+        <View style={styles.progressInfo}>
+          <Text style={[styles.progressActivityCount, { color: colors.textSecondary }]}>
+            {completed} of {total} completed
+          </Text>
+          
+          {/* Progress Bar - centered */}
+          <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
+            <Animated.View
+              style={[
+                styles.progressBarFill,
+                {
+                  backgroundColor: progressColor,
+                  width: barWidthAnim.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
+        </View>
+      </Animated.View>
+    </View>
+  );
 };
 
+// =============================================================================
+// MAIN TODAY SCREEN
+// =============================================================================
 export default function TodayScreen() {
   const { isDark, colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -262,34 +435,49 @@ export default function TodayScreen() {
   const [progress, setProgress] = useState<ProgressData>({ total: 0, completed: 0, percentage: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   
   const scrollY = useRef(new Animated.Value(0)).current;
+  const flatListRef = useRef<FlatList>(null);
+  const currentTaskIndex = useRef<number>(-1);
 
   const dateStr = format(currentDate, 'yyyy-MM-dd');
   const dayName = format(currentDate, 'EEEE');
-  const dayType = getDayType(currentDate);
+  const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
 
   const fetchData = useCallback(async () => {
     try {
-      const slotsRes = await fetch(`${API_URL}/api/schedule-slots`);
+      const [slotsRes, tasksRes] = await Promise.all([
+        fetch(`${API_URL}/api/schedule-slots`),
+        fetch(`${API_URL}/api/daily-tasks/${dateStr}`),
+      ]);
+      
       const slotsData = await slotsRes.json();
-      setSlots(slotsData);
-
-      const tasksRes = await fetch(`${API_URL}/api/daily-tasks/${dateStr}`);
       const tasksData = await tasksRes.json();
 
-      const tasksWithSlots: TaskWithSlot[] = tasksData.map((task: DailyTask) => {
-        const slot = slotsData.find((s: ScheduleSlot) => s.id === task.slot_id);
-        return { ...task, slot: slot || { label: 'Unknown', icon: 'clock', start_time: '', end_time: '', group: '', order_index: 0, days: [] } };
-      }).sort((a: TaskWithSlot, b: TaskWithSlot) => a.slot.order_index - b.slot.order_index);
+      let tasksWithSlots: TaskWithSlot[] = tasksData
+        .map((task: DailyTask) => {
+          const slot = slotsData.find((s: ScheduleSlot) => s.id === task.slot_id);
+          if (!slot) return null;
+          return { 
+            ...task, 
+            slot,
+            isCurrentTask: isToday && isCurrentTask(slot.start_time, slot.end_time),
+          };
+        })
+        .filter(Boolean)
+        .sort((a: TaskWithSlot, b: TaskWithSlot) => a.slot.order_index - b.slot.order_index);
+
+      // Find overlapping tasks
+      tasksWithSlots = findOverlappingTasks(tasksWithSlots);
+      
+      // Find current task index for auto-scroll
+      currentTaskIndex.current = tasksWithSlots.findIndex(t => t.isCurrentTask);
 
       setTasks(tasksWithSlots);
-
+      
       const total = tasksWithSlots.length;
       const completed = tasksWithSlots.filter((t: TaskWithSlot) => t.completed).length;
-      const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-      setProgress({ total, completed, percentage });
+      setProgress({ total, completed, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 });
 
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -297,12 +485,25 @@ export default function TodayScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [dateStr]);
+  }, [dateStr, isToday]);
 
   useEffect(() => {
     setLoading(true);
     fetchData();
   }, [fetchData]);
+
+  // Auto-scroll to current task on load
+  useEffect(() => {
+    if (!loading && currentTaskIndex.current >= 0 && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({
+          index: currentTaskIndex.current,
+          animated: true,
+          viewPosition: 0.3,
+        });
+      }, 500);
+    }
+  }, [loading]);
 
   const handleToggleTask = async (taskId: string, completed: boolean) => {
     try {
@@ -328,124 +529,125 @@ export default function TodayScreen() {
 
   const goToPrevDay = () => setCurrentDate(prev => subDays(prev, 1));
   const goToNextDay = () => setCurrentDate(prev => addDays(prev, 1));
+  const onRefresh = () => { setRefreshing(true); fetchData(); };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchData();
-  };
-
-  const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
-
-  // Animation interpolations
-  // Header (logo + subtitle) fades out as progress card moves up
+  // Scroll animations
   const headerOpacity = scrollY.interpolate({
-    inputRange: [0, HEADER_TOTAL_HEIGHT / 2, HEADER_TOTAL_HEIGHT],
-    outputRange: [1, 0.3, 0],
-    extrapolate: 'clamp',
-  });
-
-  // Date section fades out
-  const dateOpacity = scrollY.interpolate({
-    inputRange: [0, DATE_SECTION_HEIGHT, HEADER_TOTAL_HEIGHT],
+    inputRange: [0, HEADER_HEIGHT / 2, HEADER_HEIGHT],
     outputRange: [1, 0.5, 0],
     extrapolate: 'clamp',
   });
 
-  // Progress card moves up and becomes sticky
   const progressTranslateY = scrollY.interpolate({
-    inputRange: [0, HEADER_TOTAL_HEIGHT, HEADER_TOTAL_HEIGHT + 1],
-    outputRange: [0, -HEADER_TOTAL_HEIGHT, -HEADER_TOTAL_HEIGHT],
+    inputRange: [0, HEADER_HEIGHT],
+    outputRange: [0, -HEADER_HEIGHT],
     extrapolate: 'clamp',
   });
 
-  // Day/Date info fades IN inside progress card as we scroll
-  const progressDateOpacity = scrollY.interpolate({
-    inputRange: [0, HEADER_TOTAL_HEIGHT / 2, HEADER_TOTAL_HEIGHT],
+  const dateInfoOpacity = scrollY.interpolate({
+    inputRange: [0, HEADER_HEIGHT / 2, HEADER_HEIGHT],
     outputRange: [0, 0.5, 1],
     extrapolate: 'clamp',
   });
 
-  const cardShadow = {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: isDark ? 0.4 : 0.08,
-    shadowRadius: 8,
-    elevation: 4,
+  const barPosition = scrollY.interpolate({
+    inputRange: [0, HEADER_HEIGHT],
+    outputRange: [0, 10],
+    extrapolate: 'clamp',
+  });
+
+  // Task fade as it scrolls under progress card
+  const getTaskFadeOpacity = (index: number) => {
+    return scrollY.interpolate({
+      inputRange: [0, HEADER_HEIGHT + (index * 80), HEADER_HEIGHT + (index * 80) + 40],
+      outputRange: [1, 1, 0.3],
+      extrapolate: 'clamp',
+    });
   };
+
+  const renderTask = useCallback(({ item, index }: { item: TaskWithSlot; index: number }) => (
+    <TaskItem
+      task={item}
+      onToggle={handleToggleTask}
+      isDark={isDark}
+      colors={colors}
+      fadeOpacity={getTaskFadeOpacity(index)}
+    />
+  ), [isDark, colors, scrollY]);
+
+  const ListHeader = () => (
+    <View style={{ height: PROGRESS_CARD_HEIGHT + SPACING.md }} />
+  );
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={colors.bgGradient as any}
-        style={StyleSheet.absoluteFillObject}
-      />
+      <LinearGradient colors={colors.bgGradient as any} style={StyleSheet.absoluteFillObject} />
       
       <View style={[styles.safeArea, { paddingTop: insets.top }]}>
-        {/* Fixed Background Header - Logo and Subtitle */}
+        {/* Fixed Header - Logo, Subtitle, Date Nav */}
         <Animated.View style={[styles.fixedHeader, { opacity: headerOpacity }]}>
           <Logo isDark={isDark} colors={colors} />
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Stay consistent, stay focused
           </Text>
-        </Animated.View>
-
-        {/* Fixed Date Navigation */}
-        <Animated.View style={[
-          styles.dateNav, 
-          { top: insets.top + LOGO_SECTION_HEIGHT, opacity: dateOpacity }
-        ]}>
-          <EmbossedButton onPress={goToPrevDay} isDark={isDark} colors={colors}>
-            <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
-          </EmbossedButton>
           
-          <View style={styles.dateCenter}>
-            <Text style={[styles.dateLabel, { color: colors.textPrimary }]}>
-              {isToday ? 'Today' : dayName}
-            </Text>
-            <Text style={[styles.dateText, { color: colors.textSecondary }]}>
-              {format(currentDate, 'MMMM d, yyyy')}
-            </Text>
+          {/* Date Navigation */}
+          <View style={styles.dateNav}>
+            <EmbossedButton onPress={goToPrevDay} isDark={isDark} colors={colors}>
+              <Ionicons name="chevron-back" size={20} color={colors.textSecondary} />
+            </EmbossedButton>
+            
+            <View style={styles.dateCenter}>
+              <Text style={[styles.dateLabel, { color: colors.textPrimary }]}>
+                {isToday ? 'Today' : dayName}
+              </Text>
+              <Text style={[styles.dateText, { color: colors.textInactive }]}>
+                {format(currentDate, 'MMMM d, yyyy')}
+              </Text>
+            </View>
+            
+            <EmbossedButton onPress={goToNextDay} isDark={isDark} colors={colors}>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </EmbossedButton>
           </View>
-          
-          <EmbossedButton onPress={goToNextDay} isDark={isDark} colors={colors}>
-            <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
-          </EmbossedButton>
         </Animated.View>
 
-        {/* Progress Card - Moves up and becomes sticky */}
+        {/* Progress Card - Sticky on scroll */}
         <Animated.View style={[
           styles.progressCardWrapper,
           { 
-            top: insets.top + HEADER_TOTAL_HEIGHT,
+            top: insets.top + HEADER_HEIGHT,
             transform: [{ translateY: progressTranslateY }],
-            zIndex: 100,
           }
         ]}>
-          <View style={[styles.progressCard, { backgroundColor: colors.card }, cardShadow]}>
-            {/* Left: Progress Circle */}
-            <ProgressCard
-              completed={progress.completed}
-              total={progress.total}
-              isDark={isDark}
-              colors={colors}
-              showDateInfo={true}
-              dateInfoOpacity={progressDateOpacity}
-              dayName={isToday ? 'Today' : dayName}
-              dateText={format(currentDate, 'MMMM d, yyyy')}
-            />
-          </View>
+          <ProgressCard
+            completed={progress.completed}
+            total={progress.total}
+            dayName={isToday ? 'Today' : dayName}
+            dateText={format(currentDate, 'MMMM d, yyyy')}
+            showDateInfo={true}
+            dateInfoOpacity={dateInfoOpacity}
+            barPosition={barPosition}
+            isDark={isDark}
+            colors={colors}
+          />
         </Animated.View>
 
+        {/* Tasks List */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.accent} />
           </View>
         ) : (
-          <Animated.ScrollView
-            style={styles.scrollView}
+          <Animated.FlatList
+            ref={flatListRef}
+            data={tasks}
+            keyExtractor={(item) => item.id}
+            renderItem={renderTask}
+            ListHeaderComponent={ListHeader}
             contentContainerStyle={[
-              styles.scrollContent, 
-              { paddingTop: HEADER_TOTAL_HEIGHT + PROGRESS_CARD_HEIGHT + 20 }
+              styles.listContent, 
+              { paddingTop: HEADER_HEIGHT + SPACING.md }
             ]}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
@@ -458,158 +660,207 @@ export default function TodayScreen() {
                 refreshing={refreshing}
                 onRefresh={onRefresh}
                 tintColor={colors.accent}
-                progressViewOffset={HEADER_TOTAL_HEIGHT + PROGRESS_CARD_HEIGHT}
+                progressViewOffset={HEADER_HEIGHT + PROGRESS_CARD_HEIGHT}
               />
             }
-          >
-            {/* Tasks List */}
-            <View style={styles.tasksSection}>
-              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Schedule</Text>
-              {tasks.map(task => (
-                <TaskItem
-                  key={task.id}
-                  task={task}
-                  onToggle={handleToggleTask}
-                  isDark={isDark}
-                  colors={colors}
-                />
-              ))}
-            </View>
-          </Animated.ScrollView>
+            onScrollToIndexFailed={(info) => {
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+              }, 100);
+            }}
+          />
         )}
       </View>
     </View>
   );
 }
 
+// =============================================================================
+// STYLES
+// =============================================================================
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
+  
   fixedHeader: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     zIndex: 1,
+    paddingTop: 44,
   },
   logoContainer: {
-    marginHorizontal: 20,
-    marginTop: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 14,
+    marginHorizontal: SPACING.lg,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: 12,
   },
   logoText: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '700',
     letterSpacing: -0.5,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 13,
-    marginTop: 8,
+    fontSize: 12,
+    marginTop: 6,
     textAlign: 'center',
-    marginBottom: 8,
   },
+  
   dateNav: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    zIndex: 2,
+    paddingHorizontal: SPACING.lg,
+    marginTop: SPACING.md,
   },
   embossedButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  embossedButtonPressed: {
-    transform: [{ scale: 0.96 }],
   },
   dateCenter: {
     alignItems: 'center',
   },
   dateLabel: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
   },
   dateText: {
-    fontSize: 13,
+    fontSize: 12,
     marginTop: 2,
   },
+  
   progressCardWrapper: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
+    left: SPACING.lg,
+    right: SPACING.lg,
+    zIndex: 10,
   },
   progressCard: {
     borderRadius: 14,
+    padding: SPACING.md,
     overflow: 'hidden',
   },
+  progressDateInfo: {
+    marginBottom: SPACING.xs,
+  },
+  progressDayName: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  progressDateText: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  progressContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  progressCircleContainer: {
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SPACING.md,
+  },
+  progressCircleText: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressPercentage: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  progressInfo: {
+    flex: 1,
+  },
+  progressActivityCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: SPACING.sm,
+  },
+  progressBarBg: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scrollView: {
-    flex: 1,
+  listContent: {
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.xl,
   },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  tasksSection: {
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    marginBottom: 14,
-  },
+  
   taskItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
+    borderRadius: 12,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
   },
-  // ROUND checkbox
   checkbox: {
     width: 24,
     height: 24,
-    borderRadius: 12, // Fully round
+    borderRadius: 12,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: SPACING.md,
   },
   taskIconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: SPACING.md,
   },
   taskContent: {
     flex: 1,
   },
+  taskHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   taskLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 3,
+    flex: 1,
+  },
+  currentBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: SPACING.sm,
+  },
+  currentBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
   },
   taskTime: {
-    fontSize: 12,
+    fontSize: 11,
+  },
+  warningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  warningText: {
+    fontSize: 10,
   },
 });
