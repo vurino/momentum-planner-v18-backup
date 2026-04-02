@@ -36,6 +36,7 @@ class ScheduleSlot(BaseModel):
     group: str = "general"
     order_index: int
     days: List[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])  # Days when this slot is active
+    notes: Optional[str] = None  # Optional notes field
 
 class ScheduleSlotCreate(BaseModel):
     label: str
@@ -45,6 +46,7 @@ class ScheduleSlotCreate(BaseModel):
     group: str = "general"
     order_index: int
     days: List[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+    notes: Optional[str] = None
 
 class ScheduleSlotUpdate(BaseModel):
     label: Optional[str] = None
@@ -54,15 +56,18 @@ class ScheduleSlotUpdate(BaseModel):
     group: Optional[str] = None
     order_index: Optional[int] = None
     days: Optional[List[str]] = None
+    notes: Optional[str] = None
 
 class DailyTask(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     date: str  # YYYY-MM-DD format
     slot_id: str
     completed: bool = False
+    notes: Optional[str] = None  # Per-day notes for this task
 
 class DailyTaskUpdate(BaseModel):
-    completed: bool
+    completed: Optional[bool] = None
+    notes: Optional[str] = None
 
 class BulkSlotsUpdate(BaseModel):
     slots: List[ScheduleSlot]
@@ -117,6 +122,8 @@ async def get_schedule_slots():
     for slot in slots:
         if 'days' not in slot:
             slot['days'] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        if 'notes' not in slot:
+            slot['notes'] = None
         result.append(ScheduleSlot(**slot))
     
     return result
@@ -210,10 +217,14 @@ async def get_daily_tasks(date_str: str):
 
 @api_router.put("/daily-tasks/{task_id}", response_model=DailyTask)
 async def update_daily_task(task_id: str, task_update: DailyTaskUpdate):
-    """Update a daily task (toggle completion)"""
+    """Update a daily task (toggle completion or update notes)"""
+    update_data = {k: v for k, v in task_update.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data provided")
+    
     result = await db.daily_tasks.update_one(
         {"id": task_id},
-        {"$set": {"completed": task_update.completed}}
+        {"$set": update_data}
     )
     
     if result.matched_count == 0:
@@ -275,6 +286,47 @@ async def get_monthly_progress(year: int, month: int):
             })
     
     return progress_data
+
+@api_router.get("/weekly-summary/{date_str}")
+async def get_weekly_summary(date_str: str):
+    """Get weekly summary (7 days ending on the given date)"""
+    from datetime import datetime, timedelta
+    
+    end_date = datetime.strptime(date_str, "%Y-%m-%d")
+    weekly_data = []
+    
+    for i in range(6, -1, -1):  # 7 days, from oldest to newest
+        day_date = end_date - timedelta(days=i)
+        day_str = day_date.strftime("%Y-%m-%d")
+        tasks = await db.daily_tasks.find({"date": day_str}).to_list(100)
+        
+        if tasks:
+            total = len(tasks)
+            completed = sum(1 for t in tasks if t.get("completed", False))
+            percentage = round((completed / total * 100) if total > 0 else 0)
+        else:
+            total = 0
+            completed = 0
+            percentage = 0
+        
+        weekly_data.append({
+            "date": day_str,
+            "day_abbr": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day_date.weekday()],
+            "total": total,
+            "completed": completed,
+            "percentage": percentage
+        })
+    
+    # Calculate average
+    days_with_data = [d for d in weekly_data if d["total"] > 0]
+    avg_percentage = round(sum(d["percentage"] for d in days_with_data) / len(days_with_data)) if days_with_data else 0
+    
+    return {
+        "days": weekly_data,
+        "average_percentage": avg_percentage,
+        "total_completed": sum(d["completed"] for d in weekly_data),
+        "total_tasks": sum(d["total"] for d in weekly_data)
+    }
 
 
 # Include the router in the main app

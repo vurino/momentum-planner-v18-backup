@@ -8,14 +8,16 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from 'date-fns';
-import { useTheme } from '../../context/ThemeContext';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths, subDays } from 'date-fns';
+import { useTheme, getCardShadow, SPACING } from '../../context/ThemeContext';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface DayProgress {
   date: string;
@@ -23,6 +25,21 @@ interface DayProgress {
   total: number;
   completed: number;
   percentage: number;
+}
+
+interface WeeklyData {
+  date: string;
+  day_abbr: string;
+  total: number;
+  completed: number;
+  percentage: number;
+}
+
+interface WeeklySummary {
+  days: WeeklyData[];
+  average_percentage: number;
+  total_completed: number;
+  total_tasks: number;
 }
 
 interface ScheduleSlot {
@@ -34,6 +51,7 @@ interface ScheduleSlot {
   group: string;
   order_index: number;
   days: string[];
+  notes?: string;
 }
 
 interface DailyTask {
@@ -41,6 +59,7 @@ interface DailyTask {
   date: string;
   slot_id: string;
   completed: boolean;
+  notes?: string;
 }
 
 interface TaskWithSlot extends DailyTask {
@@ -68,6 +87,21 @@ const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
   return iconMap[iconName] || 'ellipse-outline';
 };
 
+// Get color based on completion percentage
+const getCompletionColor = (percentage: number, colors: any) => {
+  if (percentage >= 80) return colors.success; // Green
+  if (percentage >= 40) return colors.accent;   // Orange
+  if (percentage > 0) return colors.danger;     // Red
+  return 'transparent';
+};
+
+const getCompletionBgColor = (percentage: number, colors: any, isDark: boolean) => {
+  if (percentage >= 80) return isDark ? 'rgba(74, 222, 128, 0.25)' : 'rgba(34, 197, 94, 0.2)';
+  if (percentage >= 40) return isDark ? 'rgba(255, 106, 46, 0.25)' : 'rgba(255, 106, 46, 0.2)';
+  if (percentage > 0) return isDark ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.2)';
+  return 'transparent';
+};
+
 // Embossed Button Component
 const EmbossedButton = ({ 
   onPress, 
@@ -84,18 +118,6 @@ const EmbossedButton = ({
 }) => {
   const [isPressed, setIsPressed] = useState(false);
 
-  const buttonShadow = isPressed ? {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: isDark ? 0.6 : 0.15,
-    shadowRadius: 4,
-  } : {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-  };
-
   return (
     <Pressable
       onPress={onPress}
@@ -104,7 +126,7 @@ const EmbossedButton = ({
       style={[
         styles.embossedButton,
         { backgroundColor: colors.card },
-        buttonShadow,
+        getCardShadow(isDark),
         isPressed && styles.embossedButtonPressed,
         style,
       ]}
@@ -114,7 +136,7 @@ const EmbossedButton = ({
   );
 };
 
-// Calendar Day Component
+// Calendar Day Component with color-coded backgrounds
 const CalendarDay = ({
   day,
   isCurrentMonth,
@@ -122,6 +144,7 @@ const CalendarDay = ({
   progress,
   onPress,
   colors,
+  isDark,
 }: {
   day: Date;
   isCurrentMonth: boolean;
@@ -129,26 +152,29 @@ const CalendarDay = ({
   progress?: DayProgress;
   onPress: () => void;
   colors: any;
+  isDark: boolean;
 }) => {
   const dayNumber = format(day, 'd');
   const hasProgress = progress && progress.total > 0;
   const percentComplete = progress?.percentage || 0;
 
-  let bgColor = 'transparent';
-  if (percentComplete === 100) {
-    bgColor = 'rgba(74, 222, 128, 0.3)';
-  } else if (percentComplete >= 50) {
-    bgColor = 'rgba(255, 106, 46, 0.3)';
-  } else if (percentComplete > 0) {
-    bgColor = 'rgba(255, 106, 46, 0.15)';
-  }
+  const bgColor = hasProgress && isCurrentMonth 
+    ? getCompletionBgColor(percentComplete, colors, isDark) 
+    : 'transparent';
+  
+  const borderColor = hasProgress && isCurrentMonth 
+    ? getCompletionColor(percentComplete, colors)
+    : 'transparent';
 
   return (
     <TouchableOpacity
       style={[
         styles.calendarDay,
-        isSelected && { backgroundColor: colors.accent },
-        { backgroundColor: isCurrentMonth && !isSelected ? bgColor : isSelected ? colors.accent : 'transparent' },
+        { 
+          backgroundColor: isSelected ? colors.accent : bgColor,
+          borderWidth: hasProgress && isCurrentMonth && !isSelected ? 1.5 : 0,
+          borderColor: isSelected ? colors.accent : borderColor,
+        },
       ]}
       onPress={onPress}
       disabled={!isCurrentMonth}
@@ -157,50 +183,101 @@ const CalendarDay = ({
         style={[
           styles.calendarDayText,
           { color: colors.textPrimary },
-          !isCurrentMonth && { color: colors.textInactive },
+          !isCurrentMonth && { color: colors.textInactive, opacity: 0.4 },
           isSelected && { color: '#fff', fontWeight: '700' },
           isToday(day) && !isSelected && { color: colors.accent, fontWeight: '700' },
         ]}
       >
         {dayNumber}
       </Text>
-      {hasProgress && isCurrentMonth && (
-        <View style={styles.progressDot}>
-          <View
-            style={[
-              styles.progressDotInner,
-              { backgroundColor: percentComplete === 100 ? colors.success : colors.accent },
-            ]}
-          />
-        </View>
-      )}
     </TouchableOpacity>
+  );
+};
+
+// Weekly Summary Bar Chart
+const WeeklySummaryChart = ({ 
+  data, 
+  colors, 
+  isDark 
+}: { 
+  data: WeeklySummary | null; 
+  colors: any; 
+  isDark: boolean;
+}) => {
+  if (!data) return null;
+
+  const maxBarHeight = 60;
+
+  return (
+    <View style={[styles.weeklyCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
+      <View style={styles.weeklyHeader}>
+        <Text style={[styles.weeklyTitle, { color: colors.textPrimary }]}>Weekly Overview</Text>
+        <View style={[styles.avgBadge, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.avgText, { color: colors.success }]}>
+            {data.average_percentage}% avg
+          </Text>
+        </View>
+      </View>
+      
+      <View style={styles.barsContainer}>
+        {data.days.map((day, index) => {
+          const barHeight = (day.percentage / 100) * maxBarHeight;
+          const barColor = getCompletionColor(day.percentage, colors);
+          
+          return (
+            <View key={index} style={styles.barColumn}>
+              <View style={[styles.barWrapper, { height: maxBarHeight }]}>
+                <View 
+                  style={[
+                    styles.bar, 
+                    { 
+                      height: barHeight || 2,
+                      backgroundColor: barColor || colors.textInactive,
+                      opacity: day.total === 0 ? 0.3 : 1,
+                    }
+                  ]} 
+                />
+              </View>
+              <Text style={[styles.barLabel, { color: colors.textSecondary }]}>
+                {day.day_abbr}
+              </Text>
+              <Text style={[styles.barPercent, { color: day.total > 0 ? barColor : colors.textInactive }]}>
+                {day.total > 0 ? `${day.percentage}%` : '-'}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      
+      <View style={[styles.weeklyStats, { borderTopColor: colors.divider }]}>
+        <View style={styles.statItem}>
+          <Text style={[styles.statValue, { color: colors.success }]}>{data.total_completed}</Text>
+          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Completed</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={[styles.statValue, { color: colors.textPrimary }]}>{data.total_tasks}</Text>
+          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Tasks</Text>
+        </View>
+      </View>
+    </View>
   );
 };
 
 // Task Item Component
 const HistoryTaskItem = ({ task, isDark, colors }: { task: TaskWithSlot; isDark: boolean; colors: any }) => {
   const isCompleted = task.completed;
-
-  const cardShadow = {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-    elevation: 8,
-  };
+  const hasNotes = task.slot.notes || task.notes;
 
   return (
     <View
       style={[
         styles.taskItem,
         { backgroundColor: colors.card },
-        cardShadow,
+        getCardShadow(isDark),
         isCompleted && {
           borderColor: colors.success,
           borderWidth: 1,
-          shadowColor: colors.success,
-          shadowOpacity: isDark ? 0.2 : 0.15,
         },
       ]}
     >
@@ -217,7 +294,7 @@ const HistoryTaskItem = ({ task, isDark, colors }: { task: TaskWithSlot; isDark:
       <View style={[
         styles.taskIconContainer,
         { backgroundColor: colors.surface },
-        isCompleted && { backgroundColor: `${colors.success}25` },
+        isCompleted && { backgroundColor: colors.successGlow },
       ]}>
         <Ionicons 
           name={getIconName(task.slot.icon)} 
@@ -227,26 +304,55 @@ const HistoryTaskItem = ({ task, isDark, colors }: { task: TaskWithSlot; isDark:
       </View>
       
       <View style={styles.taskContent}>
-        <Text style={[
-          styles.taskLabel,
-          { color: colors.textPrimary },
-          isCompleted && { color: colors.success },
-        ]}>
-          {task.slot.label}
-        </Text>
+        <View style={styles.taskHeader}>
+          <Text style={[
+            styles.taskLabel,
+            { color: colors.textPrimary },
+            isCompleted && { color: colors.success },
+          ]} numberOfLines={1}>
+            {task.slot.label}
+          </Text>
+          {hasNotes && (
+            <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} style={{ marginLeft: 6 }} />
+          )}
+        </View>
         <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
           {task.slot.start_time} — {task.slot.end_time}
         </Text>
+        {hasNotes && (
+          <Text style={[styles.notePreview, { color: colors.textInactive }]} numberOfLines={1}>
+            {task.notes || task.slot.notes}
+          </Text>
+        )}
       </View>
     </View>
   );
 };
+
+// Legend Component
+const Legend = ({ colors }: { colors: any }) => (
+  <View style={styles.legendContainer}>
+    <View style={styles.legendItem}>
+      <View style={[styles.legendDot, { backgroundColor: colors.success }]} />
+      <Text style={[styles.legendText, { color: colors.textSecondary }]}>80%+</Text>
+    </View>
+    <View style={styles.legendItem}>
+      <View style={[styles.legendDot, { backgroundColor: colors.accent }]} />
+      <Text style={[styles.legendText, { color: colors.textSecondary }]}>40-79%</Text>
+    </View>
+    <View style={styles.legendItem}>
+      <View style={[styles.legendDot, { backgroundColor: colors.danger }]} />
+      <Text style={[styles.legendText, { color: colors.textSecondary }]}>&lt;40%</Text>
+    </View>
+  </View>
+);
 
 export default function HistoryScreen() {
   const { isDark, colors } = useTheme();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [monthProgress, setMonthProgress] = useState<DayProgress[]>([]);
+  const [weeklySummary, setWeeklySummary] = useState<WeeklySummary | null>(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState<TaskWithSlot[]>([]);
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -267,16 +373,20 @@ export default function HistoryScreen() {
   const fetchMonthProgress = useCallback(async () => {
     setLoading(true);
     try {
-      const [progressRes, slotsRes] = await Promise.all([
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const [progressRes, slotsRes, weeklyRes] = await Promise.all([
         fetch(`${API_URL}/api/monthly-progress/${year}/${month}`),
         fetch(`${API_URL}/api/schedule-slots`),
+        fetch(`${API_URL}/api/weekly-summary/${todayStr}`),
       ]);
       
       const progressData = await progressRes.json();
       const slotsData = await slotsRes.json();
+      const weeklyData = await weeklyRes.json();
       
       setMonthProgress(progressData);
       setSlots(slotsData);
+      setWeeklySummary(weeklyData);
     } catch (error) {
       console.error('Error fetching month progress:', error);
     } finally {
@@ -296,7 +406,18 @@ export default function HistoryScreen() {
 
       const tasksWithSlots: TaskWithSlot[] = tasks.map((task: DailyTask) => {
         const slot = slots.find(s => s.id === task.slot_id);
-        return { ...task, slot: slot || { label: 'Unknown', icon: 'clock', start_time: '', end_time: '', group: '', order_index: 0, days: [] } };
+        return { 
+          ...task, 
+          slot: slot || { 
+            label: 'Unknown', 
+            icon: 'clock', 
+            start_time: '', 
+            end_time: '', 
+            group: '', 
+            order_index: 0, 
+            days: [] 
+          } 
+        };
       }).sort((a: TaskWithSlot, b: TaskWithSlot) => a.slot.order_index - b.slot.order_index);
 
       setSelectedDayTasks(tasksWithSlots);
@@ -332,14 +453,6 @@ export default function HistoryScreen() {
 
   const selectedProgress = selectedDate ? getProgressForDay(selectedDate) : null;
 
-  const cardShadow = {
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: isDark ? 0.55 : 0.12,
-    shadowRadius: 12,
-    elevation: 8,
-  };
-
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -354,10 +467,13 @@ export default function HistoryScreen() {
         </View>
 
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          {/* Weekly Summary Chart */}
+          <WeeklySummaryChart data={weeklySummary} colors={colors} isDark={isDark} />
+
           {/* Month Navigation */}
           <View style={styles.monthNav}>
             <EmbossedButton onPress={goToPrevMonth} isDark={isDark} colors={colors}>
-              <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+              <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
             </EmbossedButton>
             
             <Text style={[styles.monthText, { color: colors.textPrimary }]}>
@@ -365,16 +481,19 @@ export default function HistoryScreen() {
             </Text>
             
             <EmbossedButton onPress={goToNextMonth} isDark={isDark} colors={colors}>
-              <Ionicons name="chevron-forward" size={24} color={colors.textSecondary} />
+              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
             </EmbossedButton>
           </View>
 
+          {/* Legend */}
+          <Legend colors={colors} />
+
           {/* Calendar */}
-          <View style={[styles.calendarCard, { backgroundColor: colors.card }, cardShadow]}>
+          <View style={[styles.calendarCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
             {/* Weekday headers */}
             <View style={styles.weekdayRow}>
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <View key={day} style={styles.weekdayCell}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                <View key={`${day}-${idx}`} style={styles.weekdayCell}>
                   <Text style={[styles.weekdayText, { color: colors.textSecondary }]}>{day}</Text>
                 </View>
               ))}
@@ -399,6 +518,7 @@ export default function HistoryScreen() {
                     progress={getProgressForDay(day)}
                     onPress={() => handleDayPress(day)}
                     colors={colors}
+                    isDark={isDark}
                   />
                 ))}
               </View>
@@ -409,13 +529,23 @@ export default function HistoryScreen() {
           {selectedDate && (
             <View style={styles.selectedDaySection}>
               <View style={styles.selectedDayHeader}>
-                <Text style={[styles.selectedDayTitle, { color: colors.textPrimary }]}>
-                  {format(selectedDate, 'EEEE, MMMM d')}
-                </Text>
+                <View>
+                  <Text style={[styles.selectedDayTitle, { color: colors.textPrimary }]}>
+                    {format(selectedDate, 'EEEE, MMMM d')}
+                  </Text>
+                  {selectedProgress && selectedProgress.total > 0 && (
+                    <Text style={[styles.selectedDayPercent, { color: getCompletionColor(selectedProgress.percentage, colors) }]}>
+                      {selectedProgress.percentage}% completed
+                    </Text>
+                  )}
+                </View>
                 {selectedProgress && selectedProgress.total > 0 && (
-                  <View style={[styles.progressBadge, { backgroundColor: colors.surface }]}>
-                    <Text style={[styles.progressBadgeText, { color: colors.accent }]}>
-                      {selectedProgress.completed}/{selectedProgress.total} done
+                  <View style={[
+                    styles.progressBadge, 
+                    { backgroundColor: getCompletionBgColor(selectedProgress.percentage, colors, isDark) }
+                  ]}>
+                    <Text style={[styles.progressBadgeText, { color: getCompletionColor(selectedProgress.percentage, colors) }]}>
+                      {selectedProgress.completed}/{selectedProgress.total}
                     </Text>
                   </View>
                 )}
@@ -432,13 +562,15 @@ export default function HistoryScreen() {
                   ))}
                 </View>
               ) : (
-                <View style={[styles.noTasksContainer, { backgroundColor: colors.card }, cardShadow]}>
-                  <Ionicons name="calendar-outline" size={48} color={colors.textInactive} />
-                  <Text style={[styles.noTasksText, { color: colors.textSecondary }]}>No tasks recorded for this day</Text>
+                <View style={[styles.noTasksContainer, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
+                  <Ionicons name="calendar-outline" size={40} color={colors.textInactive} />
+                  <Text style={[styles.noTasksText, { color: colors.textSecondary }]}>No tasks recorded</Text>
                 </View>
               )}
             </View>
           )}
+          
+          <View style={{ height: 40 }} />
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -453,33 +585,114 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.lg,
     paddingTop: 10,
-    paddingBottom: 16,
+    paddingBottom: 12,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 2,
   },
   scrollView: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.lg,
   },
+  
+  // Weekly Summary
+  weeklyCard: {
+    borderRadius: 16,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  weeklyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+  },
+  weeklyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  avgBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  avgText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  barsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingHorizontal: SPACING.sm,
+  },
+  barColumn: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  barWrapper: {
+    justifyContent: 'flex-end',
+    width: 20,
+  },
+  bar: {
+    width: '100%',
+    borderRadius: 4,
+  },
+  barLabel: {
+    fontSize: 10,
+    marginTop: 6,
+    fontWeight: '500',
+  },
+  barPercent: {
+    fontSize: 9,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  weeklyStats: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: SPACING.md,
+    paddingTop: SPACING.md,
+    borderTopWidth: 1,
+  },
+  statItem: {
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  statLabel: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(128,128,128,0.2)',
+  },
+  
+  // Month nav
   monthNav: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: SPACING.sm,
   },
   embossedButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -487,24 +700,47 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.96 }],
   },
   monthText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
   },
+  
+  // Legend
+  legendContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: SPACING.md,
+    gap: SPACING.lg,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendText: {
+    fontSize: 11,
+  },
+  
+  // Calendar
   calendarCard: {
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 18,
+    padding: SPACING.md,
   },
   weekdayRow: {
     flexDirection: 'row',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   weekdayCell: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   weekdayText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   calendarGrid: {
@@ -516,52 +752,49 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
+    borderRadius: 10,
     marginVertical: 2,
   },
   calendarDayText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
   },
-  progressDot: {
-    position: 'absolute',
-    bottom: 4,
-  },
-  progressDotInner: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
   calendarLoading: {
-    height: 200,
+    height: 180,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  
+  // Selected day
   selectedDaySection: {
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: SPACING.lg,
   },
   selectedDayHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    alignItems: 'flex-start',
+    marginBottom: SPACING.md,
   },
   selectedDayTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
+  },
+  selectedDayPercent: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
   },
   progressBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: 10,
   },
   progressBadgeText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   tasksLoading: {
-    paddingVertical: 40,
+    paddingVertical: 30,
     alignItems: 'center',
   },
   tasksList: {
@@ -570,22 +803,22 @@ const styles = StyleSheet.create({
   taskItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 12,
+    padding: 12,
   },
   checkbox: {
     width: 22,
     height: 22,
-    borderRadius: 7,
+    borderRadius: 11,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
   },
   taskIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
@@ -593,21 +826,31 @@ const styles = StyleSheet.create({
   taskContent: {
     flex: 1,
   },
+  taskHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   taskLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 2,
+    flex: 1,
   },
   taskTime: {
-    fontSize: 12,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  notePreview: {
+    fontSize: 11,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   noTasksContainer: {
-    borderRadius: 16,
-    padding: 40,
+    borderRadius: 14,
+    padding: 30,
     alignItems: 'center',
   },
   noTasksText: {
-    fontSize: 14,
-    marginTop: 12,
+    fontSize: 13,
+    marginTop: 10,
   },
 });

@@ -255,6 +255,36 @@ backend:
         - agent: "testing"
         - comment: "✅ TESTED: Returns progress array for all 31 days in March 2026. Each day has date/total/completed/percentage fields. Status 200."
 
+  - task: "GET /api/weekly-summary/{date} - Get weekly summary"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "main"
+        - comment: "New endpoint for Phase 3 - returns 7 days of completion data with percentages, day abbreviations, and totals"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ TESTED: Weekly summary endpoint working perfectly. Returns exactly 7 days of data ending on provided date. Each day includes date, day_abbr (Mon/Tue/etc), total, completed, percentage. Summary includes average_percentage, total_completed, total_tasks. Tested with 2026-04-02, returned data from 2026-03-27 to 2026-04-02. All calculations correct."
+
+  - task: "Notes field in ScheduleSlot and DailyTask models"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "main"
+        - comment: "Added optional notes field to ScheduleSlot and DailyTask models. Updated DailyTaskUpdate to accept notes field."
+        - working: true
+        - agent: "testing"
+        - comment: "✅ TESTED: Notes field functionality working perfectly. All existing schedule slots and daily tasks have notes field (defaults to null). Can create schedule slots with notes, update notes via PUT /api/schedule-slots/{id}. Can update daily task notes via PUT /api/daily-tasks/{id}. Can update both completion and notes together. All CRUD operations preserve notes field correctly."
+
   - task: "Days field functionality in schedule slots and daily task filtering"
     implemented: true
     working: true
@@ -332,3 +362,7 @@ agent_communication:
     - message: "✅ DAYS FIELD TESTING COMPLETE: All 7 tests for days field functionality passed. Schedule slots properly have 'days' array field, daily task filtering works correctly (14 tasks for weekdays, 5 tasks for weekends), and all CRUD operations preserve the days field. Created backend_days_test.py for comprehensive days field testing."
     - agent: "main"
     - message: "✅ THEME PERSISTENCE FIX COMPLETE: Fixed theme persistence issue in ThemeContext.tsx. Added web localStorage fallback for reliable storage. Theme now persists correctly during in-app navigation. Note: Preview environment may clear storage on full page reload (environment limitation, not app issue)."
+    - agent: "main"
+    - message: "✅ PHASE 3 IMPLEMENTATION COMPLETE: 1) Added new endpoint GET /api/weekly-summary/{date} that returns 7 days of completion data with bar chart support. 2) Updated History screen with color-coded calendar (green 80%+, orange 40-79%, red <40%), weekly summary bar chart, and enhanced task details view with notes preview. 3) Added notes field to ScheduleSlot and DailyTask models. 4) Verified auto-scroll and overlapping task detection working on Today screen. Need backend testing for new weekly-summary endpoint and notes field."
+    - agent: "testing"
+    - message: "✅ PHASE 3 BACKEND TESTING COMPLETE: All Phase 3 features tested and working perfectly. 1) GET /api/weekly-summary/{date} returns exactly 7 days of data with correct date range, day abbreviations (Mon/Tue/etc), and accurate summary calculations. 2) Notes field functionality working in both ScheduleSlot and DailyTask models - can create, update, and retrieve notes. 3) All existing data properly migrated with notes field. 4) PUT endpoints accept notes field correctly. Created backend_phase3_test.py and review_request_test.py for comprehensive testing. No issues found."
