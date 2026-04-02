@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format, addDays, subDays, getDay, parse, isWithinInterval, isBefore, isAfter } from 'date-fns';
+import { useRouter } from 'expo-router';
 import { useTheme, getCardShadow, getActiveGlow, getSuccessGlow, SPACING } from '../../context/ThemeContext';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -229,12 +230,14 @@ const AnimatedCheckbox = ({
 const TaskItem = ({ 
   task, 
   onToggle,
+  onFocus,
   isDark,
   colors,
   fadeOpacity,
 }: { 
   task: TaskWithSlot; 
   onToggle: (taskId: string, completed: boolean) => void;
+  onFocus: (task: TaskWithSlot) => void;
   isDark: boolean;
   colors: any;
   fadeOpacity?: Animated.AnimatedInterpolation<number>;
@@ -304,6 +307,16 @@ const TaskItem = ({
             </View>
           )}
         </View>
+
+        {/* Focus button for current task */}
+        {isCurrent && !isCompleted && (
+          <TouchableOpacity 
+            style={[styles.focusButton, { backgroundColor: colors.accentGlow }]}
+            onPress={() => onFocus(task)}
+          >
+            <Ionicons name="eye-outline" size={18} color={colors.accent} />
+          </TouchableOpacity>
+        )}
       </View>
     </Animated.View>
   );
@@ -430,6 +443,7 @@ const ProgressCard = ({
 export default function TodayScreen() {
   const { isDark, colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [tasks, setTasks] = useState<TaskWithSlot[]>([]);
   const [progress, setProgress] = useState<ProgressData>({ total: 0, completed: 0, percentage: 0 });
@@ -531,6 +545,18 @@ export default function TodayScreen() {
   const goToNextDay = () => setCurrentDate(prev => addDays(prev, 1));
   const onRefresh = () => { setRefreshing(true); fetchData(); };
 
+  const handleFocusMode = (task: TaskWithSlot) => {
+    router.push({
+      pathname: '/focus',
+      params: {
+        label: task.slot.label,
+        icon: task.slot.icon,
+        start_time: task.slot.start_time,
+        end_time: task.slot.end_time,
+      },
+    });
+  };
+
   // Scroll animations
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT / 2, HEADER_HEIGHT],
@@ -569,6 +595,7 @@ export default function TodayScreen() {
     <TaskItem
       task={item}
       onToggle={handleToggleTask}
+      onFocus={handleFocusMode}
       isDark={isDark}
       colors={colors}
       fadeOpacity={getTaskFadeOpacity(index)}
@@ -862,5 +889,13 @@ const styles = StyleSheet.create({
   },
   warningText: {
     fontSize: 10,
+  },
+  focusButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.sm,
   },
 });
