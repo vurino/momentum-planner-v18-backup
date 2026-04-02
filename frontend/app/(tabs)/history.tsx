@@ -348,7 +348,7 @@ const Legend = ({ colors }: { colors: any }) => (
 );
 
 export default function HistoryScreen() {
-  const { isDark, colors } = useTheme();
+  const { isDark, colors, weekStartsOnMonday } = useTheme();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [monthProgress, setMonthProgress] = useState<DayProgress[]>([]);
@@ -366,9 +366,17 @@ export default function HistoryScreen() {
   const monthEnd = endOfMonth(currentMonth);
   const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
 
-  // Add padding days for alignment
-  const startDayOfWeek = monthStart.getDay();
+  // Add padding days for alignment - adjust for week start
+  const rawStartDayOfWeek = monthStart.getDay();
+  const startDayOfWeek = weekStartsOnMonday 
+    ? (rawStartDayOfWeek === 0 ? 6 : rawStartDayOfWeek - 1) 
+    : rawStartDayOfWeek;
   const paddingDays = Array(startDayOfWeek).fill(null);
+  
+  // Weekday headers based on setting
+  const weekdayHeaders = weekStartsOnMonday 
+    ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'] 
+    : ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   const fetchMonthProgress = useCallback(async () => {
     setLoading(true);
@@ -377,7 +385,7 @@ export default function HistoryScreen() {
       const [progressRes, slotsRes, weeklyRes] = await Promise.all([
         fetch(`${API_URL}/api/monthly-progress/${year}/${month}`),
         fetch(`${API_URL}/api/schedule-slots`),
-        fetch(`${API_URL}/api/weekly-summary/${todayStr}`),
+        fetch(`${API_URL}/api/weekly-summary/${todayStr}?week_starts_monday=${weekStartsOnMonday}`),
       ]);
       
       const progressData = await progressRes.json();
@@ -392,7 +400,7 @@ export default function HistoryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, weekStartsOnMonday]);
 
   useEffect(() => {
     fetchMonthProgress();
@@ -492,7 +500,7 @@ export default function HistoryScreen() {
           <View style={[styles.calendarCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
             {/* Weekday headers */}
             <View style={styles.weekdayRow}>
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+              {weekdayHeaders.map((day, idx) => (
                 <View key={`${day}-${idx}`} style={styles.weekdayCell}>
                   <Text style={[styles.weekdayText, { color: colors.textSecondary }]}>{day}</Text>
                 </View>

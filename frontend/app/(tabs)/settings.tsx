@@ -136,12 +136,12 @@ const DayWheelSelector = ({
           {DAY_OPTIONS.map((option, index) => {
             const isSelected = index === selectedIndex;
             const distance = Math.abs(index - selectedIndex);
-            const opacity = distance === 0 ? 1 : distance === 1 ? 0.3 : 0.1;
+            const opacity = distance === 0 ? 1 : distance === 1 ? 0.55 : 0.3;
             return (
               <View key={option.key} style={[styles.dayWheelItem, { height: DAY_WHEEL_ITEM_HEIGHT }]}>
                 <Text style={[styles.dayWheelItemText, {
-                  color: isSelected ? colors.accent : colors.textInactive,
-                  fontWeight: isSelected ? '700' : '400',
+                  color: isSelected ? colors.accent : colors.textSecondary,
+                  fontWeight: isSelected ? '700' : '500',
                   opacity,
                   fontSize: isSelected ? 14 : 12,
                 }]}>
@@ -480,7 +480,7 @@ const SlotEditor = ({
 // MAIN SETTINGS SCREEN
 // =============================================================================
 export default function SettingsScreen() {
-  const { isDark, colors, toggleTheme } = useTheme();
+  const { isDark, colors, toggleTheme, weekStartsOnMonday, setWeekStartsOnMonday } = useTheme();
   const insets = useSafeAreaInsets();
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -615,6 +615,15 @@ export default function SettingsScreen() {
               <Text style={[styles.themeLabel, { color: colors.textPrimary }]}>{isDark ? 'Dark Mode' : 'Light Mode'}</Text>
             </View>
             <NeumorphicSwitch value={!isDark} onValueChange={() => toggleTheme()} isDark={isDark} colors={colors} />
+          </View>
+
+          {/* Week Start Setting */}
+          <View style={[styles.themeCard, { backgroundColor: colors.card, height: APPEARANCE_PANEL_HEIGHT }, getCardShadow(isDark)]}>
+            <View style={styles.themeContent}>
+              <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+              <Text style={[styles.themeLabel, { color: colors.textPrimary }]}>Week starts {weekStartsOnMonday ? 'Mon' : 'Sun'}</Text>
+            </View>
+            <NeumorphicSwitch value={weekStartsOnMonday} onValueChange={() => setWeekStartsOnMonday(!weekStartsOnMonday)} isDark={isDark} colors={colors} />
           </View>
 
           {/* Day selector */}

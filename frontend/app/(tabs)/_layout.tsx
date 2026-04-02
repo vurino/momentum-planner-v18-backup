@@ -4,7 +4,7 @@ import { View, StyleSheet, Platform, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, getCardShadow, SPACING } from '../../context/ThemeContext';
 
-// Tab icon with animation feedback
+// Tab icon with animation feedback - NO dot indicator
 const TabIcon = ({ 
   name, 
   focused, 
@@ -24,10 +24,7 @@ const TabIcon = ({
         { backgroundColor: colors.accentGlow },
       ],
     ]}>
-      <Ionicons name={name} size={22} color={color} />
-      {focused && (
-        <View style={[styles.activeIndicator, { backgroundColor: colors.accent }]} />
-      )}
+      <Ionicons name={name} size={24} color={color} />
     </View>
   );
 };
@@ -38,9 +35,9 @@ export default function TabLayout() {
   const tabBarStyle = {
     backgroundColor: colors.card,
     borderTopWidth: 0,
-    height: Platform.OS === 'ios' ? 88 : 68,
-    paddingBottom: Platform.OS === 'ios' ? 26 : 8,
-    paddingTop: 8,
+    height: Platform.OS === 'ios' ? 95 : 75,
+    paddingBottom: Platform.OS === 'ios' ? 26 : 10,
+    paddingTop: 12,
     ...getCardShadow(isDark),
     shadowOffset: { width: 0, height: -2 },
   };
@@ -112,26 +109,19 @@ const styles = StyleSheet.create({
   tabBarLabel: {
     fontSize: 11,
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: 8,
   },
   tabBarItem: {
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   iconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 8,
-    borderRadius: 12,
+    padding: 10,
+    borderRadius: 14,
     position: 'relative',
   },
   iconContainerActive: {
     transform: [{ scale: 1.05 }],
-  },
-  activeIndicator: {
-    position: 'absolute',
-    bottom: -2,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
   },
 });

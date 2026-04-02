@@ -231,6 +231,7 @@ const TaskItem = ({
   task, 
   onToggle,
   onFocus,
+  onNotesPress,
   isDark,
   colors,
   fadeOpacity,
@@ -238,12 +239,14 @@ const TaskItem = ({
   task: TaskWithSlot; 
   onToggle: (taskId: string, completed: boolean) => void;
   onFocus: (task: TaskWithSlot) => void;
+  onNotesPress?: (task: TaskWithSlot) => void;
   isDark: boolean;
   colors: any;
   fadeOpacity?: Animated.AnimatedInterpolation<number>;
 }) => {
   const isCompleted = task.completed;
   const isCurrent = task.isCurrentTask;
+  const hasNotes = task.slot.notes;
 
   // Only highlight the checkbox icon when completed, not the whole card
   const cardStyle = [
@@ -253,27 +256,35 @@ const TaskItem = ({
     isCurrent && !isCompleted && getActiveGlow(colors), // Orange glow for current task
   ];
 
+  // Handle tap anywhere on task to toggle
+  const handleTaskPress = () => {
+    onToggle(task.id, !task.completed);
+  };
+
   return (
     <Animated.View style={[{ opacity: fadeOpacity || 1 }]}>
-      <View style={cardStyle}>
-        {/* Animated Checkbox */}
+      <TouchableOpacity 
+        style={cardStyle} 
+        onPress={handleTaskPress}
+        activeOpacity={0.7}
+      >
+        {/* Animated Checkbox - only this turns green */}
         <AnimatedCheckbox
           isCompleted={isCompleted}
-          onToggle={() => onToggle(task.id, !task.completed)}
+          onToggle={handleTaskPress}
           colors={colors}
           isDark={isDark}
         />
         
-        {/* Icon */}
+        {/* Icon - stays neutral color */}
         <View style={[
           styles.taskIconContainer,
           { backgroundColor: colors.surface },
-          isCompleted && { backgroundColor: colors.successGlow },
         ]}>
           <Ionicons 
             name={getIconName(task.slot.icon)} 
             size={20} 
-            color={isCompleted ? colors.success : isCurrent ? colors.accent : colors.iconInactive} 
+            color={isCurrent && !isCompleted ? colors.accent : colors.iconInactive} 
           />
         </View>
         
@@ -282,7 +293,8 @@ const TaskItem = ({
           <View style={styles.taskHeader}>
             <Text style={[
               styles.taskLabel,
-              { color: isCompleted ? colors.success : colors.textPrimary },
+              { color: colors.textPrimary },
+              isCompleted && styles.taskLabelCompleted,
             ]} numberOfLines={1}>
               {task.slot.label}
             </Text>
@@ -308,16 +320,35 @@ const TaskItem = ({
           )}
         </View>
 
-        {/* Focus button for current task */}
-        {isCurrent && !isCompleted && (
-          <TouchableOpacity 
-            style={[styles.focusButton, { backgroundColor: colors.accentGlow }]}
-            onPress={() => onFocus(task)}
-          >
-            <Ionicons name="eye-outline" size={18} color={colors.accent} />
-          </TouchableOpacity>
-        )}
-      </View>
+        {/* Right side icons */}
+        <View style={styles.taskActions}>
+          {/* Notes icon */}
+          {hasNotes && (
+            <TouchableOpacity 
+              style={[styles.notesButton, { backgroundColor: colors.surface }]}
+              onPress={(e) => {
+                e.stopPropagation();
+                onNotesPress?.(task);
+              }}
+            >
+              <Ionicons name="document-text-outline" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+          
+          {/* Focus button for current task */}
+          {isCurrent && !isCompleted && (
+            <TouchableOpacity 
+              style={[styles.focusButton, { backgroundColor: colors.accentGlow }]}
+              onPress={(e) => {
+                e.stopPropagation();
+                onFocus(task);
+              }}
+            >
+              <Ionicons name="eye-outline" size={18} color={colors.accent} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
     </Animated.View>
   );
 };
@@ -596,6 +627,10 @@ export default function TodayScreen() {
       task={item}
       onToggle={handleToggleTask}
       onFocus={handleFocusMode}
+      onNotesPress={(task) => {
+        // TODO: Open notes modal
+        console.log('Notes pressed for:', task.slot.label);
+      }}
       isDark={isDark}
       colors={colors}
       fadeOpacity={getTaskFadeOpacity(index)}
@@ -890,12 +925,28 @@ const styles = StyleSheet.create({
   warningText: {
     fontSize: 10,
   },
+  taskActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  notesButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   focusButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: SPACING.sm,
+  },
+  taskLabelCompleted: {
+    textDecorationLine: 'line-through',
+    textDecorationStyle: 'solid',
+    opacity: 0.7,
   },
 });

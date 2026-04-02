@@ -145,11 +145,14 @@ interface ThemeContextType {
   colors: ThemeColors;
   toggleTheme: () => void;
   isLoading: boolean;
+  weekStartsOnMonday: boolean;
+  setWeekStartsOnMonday: (value: boolean) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_STORAGE_KEY = '@momentum_theme_mode';
+const WEEK_START_STORAGE_KEY = '@momentum_week_start';
 
 // Storage helpers with web fallback
 const getStorageValue = async (key: string): Promise<string | null> => {
@@ -184,12 +187,17 @@ const setStorageValue = async (key: string, value: string): Promise<void> => {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [isDark, setIsDark] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [weekStartsOnMonday, setWeekStartsOnMondayState] = useState(true);
 
   const loadTheme = useCallback(async () => {
     try {
       const savedTheme = await getStorageValue(THEME_STORAGE_KEY);
       if (savedTheme !== null) {
         setIsDark(savedTheme === 'dark');
+      }
+      const savedWeekStart = await getStorageValue(WEEK_START_STORAGE_KEY);
+      if (savedWeekStart !== null) {
+        setWeekStartsOnMondayState(savedWeekStart === 'monday');
       }
     } catch (error) {
       console.error('Error loading theme:', error);
@@ -212,6 +220,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [isDark]);
 
+  const setWeekStartsOnMonday = useCallback(async (value: boolean) => {
+    try {
+      setWeekStartsOnMondayState(value);
+      await setStorageValue(WEEK_START_STORAGE_KEY, value ? 'monday' : 'sunday');
+    } catch (error) {
+      console.error('Error saving week start:', error);
+    }
+  }, []);
+
   const colors = isDark ? DARK_COLORS : LIGHT_COLORS;
 
   if (isLoading) {
@@ -223,7 +240,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ThemeContext.Provider value={{ isDark, colors, toggleTheme, isLoading }}>
+    <ThemeContext.Provider value={{ isDark, colors, toggleTheme, isLoading, weekStartsOnMonday, setWeekStartsOnMonday }}>
       {children}
     </ThemeContext.Provider>
   );

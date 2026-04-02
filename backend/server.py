@@ -288,15 +288,28 @@ async def get_monthly_progress(year: int, month: int):
     return progress_data
 
 @api_router.get("/weekly-summary/{date_str}")
-async def get_weekly_summary(date_str: str):
-    """Get weekly summary (7 days ending on the given date)"""
+async def get_weekly_summary(date_str: str, week_starts_monday: bool = True):
+    """Get weekly summary (7 days ending on the given date or a Mon-Sun/Sun-Sat week)"""
     from datetime import datetime, timedelta
     
     end_date = datetime.strptime(date_str, "%Y-%m-%d")
+    
+    # Calculate the start of the week based on preference
+    if week_starts_monday:
+        # Find the Monday of this week
+        days_since_monday = end_date.weekday()
+        week_start = end_date - timedelta(days=days_since_monday)
+        week_end = week_start + timedelta(days=6)
+    else:
+        # Find the Sunday of this week (week starts on Sunday)
+        days_since_sunday = (end_date.weekday() + 1) % 7
+        week_start = end_date - timedelta(days=days_since_sunday)
+        week_end = week_start + timedelta(days=6)
+    
     weekly_data = []
     
-    for i in range(6, -1, -1):  # 7 days, from oldest to newest
-        day_date = end_date - timedelta(days=i)
+    for i in range(7):
+        day_date = week_start + timedelta(days=i)
         day_str = day_date.strftime("%Y-%m-%d")
         tasks = await db.daily_tasks.find({"date": day_str}).to_list(100)
         
