@@ -1,8 +1,36 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme, getCardShadow, SPACING } from '../../context/ThemeContext';
+
+// Tab icon with animation feedback
+const TabIcon = ({ 
+  name, 
+  focused, 
+  color, 
+  colors 
+}: { 
+  name: keyof typeof Ionicons.glyphMap; 
+  focused: boolean; 
+  color: string;
+  colors: any;
+}) => {
+  return (
+    <View style={[
+      styles.iconContainer,
+      focused && [
+        styles.iconContainerActive,
+        { backgroundColor: colors.accentGlow },
+      ],
+    ]}>
+      <Ionicons name={name} size={22} color={color} />
+      {focused && (
+        <View style={[styles.activeIndicator, { backgroundColor: colors.accent }]} />
+      )}
+    </View>
+  );
+};
 
 export default function TabLayout() {
   const { isDark, colors } = useTheme();
@@ -10,14 +38,11 @@ export default function TabLayout() {
   const tabBarStyle = {
     backgroundColor: colors.card,
     borderTopWidth: 0,
-    height: Platform.OS === 'ios' ? 90 : 70,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 10,
-    paddingTop: 10,
-    shadowColor: isDark ? '#000' : '#999',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: isDark ? 0.3 : 0.1,
-    shadowRadius: 8,
-    elevation: 10,
+    height: Platform.OS === 'ios' ? 88 : 68,
+    paddingBottom: Platform.OS === 'ios' ? 26 : 8,
+    paddingTop: 8,
+    ...getCardShadow(isDark),
+    shadowOffset: { width: 0, height: -2 },
   };
 
   return (
@@ -39,18 +64,12 @@ export default function TabLayout() {
         options={{
           title: 'Today',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[
-              styles.iconContainer,
-              { backgroundColor: focused ? `${colors.accent}20` : 'transparent' },
-              focused && {
-                shadowColor: colors.accent,
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.6,
-                shadowRadius: 8,
-              }
-            ]}>
-              <Ionicons name={focused ? 'today' : 'today-outline'} size={24} color={color} />
-            </View>
+            <TabIcon 
+              name={focused ? 'today' : 'today-outline'} 
+              focused={focused} 
+              color={color} 
+              colors={colors}
+            />
           ),
         }}
       />
@@ -59,18 +78,12 @@ export default function TabLayout() {
         options={{
           title: 'History',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[
-              styles.iconContainer,
-              { backgroundColor: focused ? `${colors.accent}20` : 'transparent' },
-              focused && {
-                shadowColor: colors.accent,
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.6,
-                shadowRadius: 8,
-              }
-            ]}>
-              <Ionicons name={focused ? 'calendar' : 'calendar-outline'} size={24} color={color} />
-            </View>
+            <TabIcon 
+              name={focused ? 'calendar' : 'calendar-outline'} 
+              focused={focused} 
+              color={color}
+              colors={colors}
+            />
           ),
         }}
       />
@@ -79,18 +92,12 @@ export default function TabLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[
-              styles.iconContainer,
-              { backgroundColor: focused ? `${colors.accent}20` : 'transparent' },
-              focused && {
-                shadowColor: colors.accent,
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.6,
-                shadowRadius: 8,
-              }
-            ]}>
-              <Ionicons name={focused ? 'settings' : 'settings-outline'} size={24} color={color} />
-            </View>
+            <TabIcon 
+              name={focused ? 'settings' : 'settings-outline'} 
+              focused={focused} 
+              color={color}
+              colors={colors}
+            />
           ),
         }}
       />
@@ -105,15 +112,26 @@ const styles = StyleSheet.create({
   tabBarLabel: {
     fontSize: 11,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
   },
   tabBarItem: {
-    borderRadius: 16,
-    marginHorizontal: 8,
     paddingVertical: 4,
   },
   iconContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 8,
     borderRadius: 12,
+    position: 'relative',
+  },
+  iconContainerActive: {
+    transform: [{ scale: 1.05 }],
+  },
+  activeIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
   },
 });
