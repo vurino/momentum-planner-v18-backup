@@ -21,6 +21,7 @@ import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-nativ
 import { useTheme, getCardShadow, SPACING, CARD_PADDING } from '../../context/ThemeContext';
 import { TimeEditModal } from '../../components/TimeEditModal';
 import { ConfirmModal, CustomModal } from '../../components/CustomModal';
+import { TaskEditPanel } from '../../components/TaskEditPanel';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -673,11 +674,13 @@ export default function SettingsScreen() {
       </View>
 
       {/* Modals */}
-      <ActivityEditModal
+      <TaskEditPanel
         visible={!!editSlot}
         onClose={() => setEditSlot(null)}
         onSave={(updates) => { if (editSlot) handleUpdateSlot(editSlot.id, updates); }}
-        slot={editSlot}
+        initialLabel={editSlot?.label || ''}
+        initialIcon={editSlot?.icon || 'time'}
+        initialNotes={editSlot?.notes || ''}
         isDark={isDark}
         colors={colors}
       />
@@ -693,13 +696,15 @@ export default function SettingsScreen() {
         colors={colors}
       />
 
-      <AddActivityModal
+      <TaskEditPanel
         visible={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onAdd={handleAddSlot}
+        onSave={(updates) => handleAddSlot(updates.label, updates.icon, updates.notes)}
+        initialLabel=""
+        initialIcon="time"
+        initialNotes=""
         isDark={isDark}
         colors={colors}
-        selectedDays={selectedDayFilter}
       />
 
       <ConfirmModal
