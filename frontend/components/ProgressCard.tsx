@@ -6,7 +6,6 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 
 interface ProgressCardProps {
   completed: number;
@@ -19,25 +18,6 @@ interface ProgressCardProps {
   dateText?: string;
 }
 
-// Get progress color - progressive gradient from gray to orange
-const getProgressColor = (percentage: number, isDark: boolean): string => {
-  if (percentage === 0) return isDark ? '#3a4555' : '#c5c0b5';
-  const grayR = isDark ? 58 : 197;
-  const grayG = isDark ? 69 : 192;
-  const grayB = isDark ? 85 : 181;
-  
-  const orangeR = 255;
-  const orangeG = 106;
-  const orangeB = 46;
-  
-  const ratio = percentage / 100;
-  const r = Math.round(grayR + (orangeR - grayR) * ratio);
-  const g = Math.round(grayG + (orangeG - grayG) * ratio);
-  const b = Math.round(grayB + (orangeB - grayB) * ratio);
-  
-  return `rgb(${r}, ${g}, ${b})`;
-};
-
 export const ProgressCard: React.FC<ProgressCardProps> = ({
   completed,
   total,
@@ -49,172 +29,136 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
   dateText = '',
 }) => {
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-  const progressColor = getProgressColor(percentage, isDark);
-  
-  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  // Pastel green from V2 theme
+  const progressColor = colors.progressGreen;
+
   const barWidthAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(progressAnim, {
-        toValue: percentage,
-        duration: 800,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-      Animated.timing(barWidthAnim, {
-        toValue: percentage,
-        duration: 800,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-    ]).start();
+    Animated.timing(barWidthAnim, {
+      toValue: percentage,
+      duration: 800,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
   }, [percentage]);
 
-  const size = 70;
-  const strokeWidth = 5;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = radius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+  // dateInfoOpacity drives how much the date row takes up space.
+  // We animate paddingTop of the content so it slides down as date fades in.
+  const contentPaddingTop = dateInfoOpacity
+    ? dateInfoOpacity.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 8],
+      })
+    : new Animated.Value(0);
 
   return (
     <View style={styles.container}>
-      {/* Left: Progress Circle */}
-      <View style={styles.circleContainer}>
-        <Svg width={size} height={size}>
-          <Defs>
-            <SvgGradient id="progressGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor={progressColor} />
-              <Stop offset="100%" stopColor={progressColor} stopOpacity={0.9} />
-            </SvgGradient>
-          </Defs>
-          {/* Background circle */}
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke={isDark ? '#2a3344' : '#d5d0c5'}
-            strokeWidth={strokeWidth}
-            fill="none"
-          />
-          {/* Progress circle */}
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke="url(#progressGrad)"
-            strokeWidth={strokeWidth}
-            fill="none"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          />
-        </Svg>
-        <View style={styles.circleText}>
-          <Text style={[styles.percentageText, { color: progressColor }]}>
+
+      {/* Day / Date row — fades in as card sticks to top */}
+      {showDateInfo && dateInfoOpacity && (
+        <Animated.View style={[styles.dateRow, { opacity: dateInfoOpacity }]}>
+          <Text style={[styles.dayName, { color: colors.textPrimary }]}>
+            {dayName}
+          </Text>
+          <Text style={[styles.dateDivider, { color: colors.textInactive }]}>
+            {'  ·  '}
+          </Text>
+          <Text style={[styles.dateText, { color: colors.textInactive }]}>
+            {dateText}
+          </Text>
+        </Animated.View>
+      )}
+
+      {/* Progress content — slides down to make room for date */}
+      <Animated.View style={[styles.progressContent, { paddingTop: contentPaddingTop }]}>
+
+        {/* "x of x completed" */}
+        <Text style={[styles.activityCount, { color: colors.textSecondary }]}>
+          {completed} of {total} completed
+        </Text>
+
+        {/* Progress bar + percentage on same row */}
+        <View style={styles.barRow}>
+          <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
+            <Animated.View
+              style={[
+                styles.progressBarFill,
+                {
+                  backgroundColor: progressColor,
+                  width: barWidthAnim.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
+          <Text style={[styles.percentage, { color: progressColor }]}>
             {percentage}%
           </Text>
-          <Text style={[styles.doneText, { color: colors.textSecondary }]}>
-            DONE
-          </Text>
         </View>
-      </View>
 
-      {/* Right: Info & Progress Bar */}
-      <View style={styles.infoContainer}>
-        {/* Day/Date info that fades in when sticky */}
-        {showDateInfo && dateInfoOpacity && (
-          <Animated.View style={[styles.dateInfoContainer, { opacity: dateInfoOpacity }]}>
-            <Text style={[styles.dayNameText, { color: colors.textPrimary }]}>
-              {dayName}
-            </Text>
-            <Text style={[styles.dateInfoText, { color: colors.textSecondary }]}>
-              {dateText}
-            </Text>
-          </Animated.View>
-        )}
-        
-        <Text style={[styles.activityCount, { color: colors.textSecondary }]}>
-          {completed} of {total} activities completed
-        </Text>
-        
-        {/* Progress Bar */}
-        <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
-          <Animated.View
-            style={[
-              styles.progressBarFill,
-              {
-                backgroundColor: progressColor,
-                width: barWidthAnim.interpolate({
-                  inputRange: [0, 100],
-                  outputRange: ['0%', '100%'],
-                }),
-              },
-            ]}
-          />
-        </View>
-      </View>
+      </Animated.View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+
+  // Day · Date row at top of card
+  dateRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    marginBottom: 6,
   },
-  circleContainer: {
-    position: 'relative',
-    width: 70,
-    height: 70,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  circleText: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  percentageText: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  doneText: {
-    fontSize: 8,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    marginTop: 1,
-  },
-  infoContainer: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  dateInfoContainer: {
-    marginBottom: 4,
-  },
-  dayNameText: {
+  dayName: {
     fontSize: 15,
     fontWeight: '700',
   },
-  dateInfoText: {
-    fontSize: 11,
-    marginTop: 1,
+  dateDivider: {
+    fontSize: 14,
+  },
+  dateText: {
+    fontSize: 14,
+  },
+
+  // Content block that slides down
+  progressContent: {
+    justifyContent: 'center',
   },
   activityCount: {
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 8,
+    textAlign: 'center',
+  },
+
+  // Bar + % on same row
+  barRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   progressBarBg: {
-    height: 6,
-    borderRadius: 3,
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 4,
+  },
+  percentage: {
+    fontSize: 14,
+    fontWeight: '700',
+    minWidth: 38,
+    textAlign: 'right',
   },
 });

@@ -18,16 +18,19 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { format, addDays, subDays, getDay, parse, isWithinInterval, isBefore, isAfter } from 'date-fns';
+import { format, addDays, subDays, getDay } from 'date-fns';
 import { useRouter } from 'expo-router';
 import { useTheme, getCardShadow, getActiveGlow, getSuccessGlow, SPACING } from '../../context/ThemeContext';
+import { ProgressCard } from '../../components/ProgressCard';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Layout constants
+const LOGO_SECTION_HEIGHT = 90;
+const DATE_SECTION_HEIGHT = 60;
 const PROGRESS_CARD_HEIGHT = 100;
-const HEADER_HEIGHT = 140; // Logo + subtitle + date nav
+const HEADER_HEIGHT = LOGO_SECTION_HEIGHT + DATE_SECTION_HEIGHT; // 150
 
 interface ScheduleSlot {
   id: string;
@@ -38,6 +41,7 @@ interface ScheduleSlot {
   group: string;
   order_index: number;
   days: string[];
+  notes?: string;
 }
 
 interface DailyTask {
@@ -86,15 +90,12 @@ const isCurrentTask = (startTime: string, endTime: string): boolean => {
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const startMinutes = parseTimeToMinutes(startTime);
   let endMinutes = parseTimeToMinutes(endTime);
-  
-  // Handle overnight tasks
   if (endMinutes < startMinutes) {
     endMinutes += 24 * 60;
     if (currentMinutes < startMinutes) {
       return currentMinutes + 24 * 60 >= startMinutes && currentMinutes + 24 * 60 <= endMinutes;
     }
   }
-  
   return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
 };
 
@@ -103,14 +104,11 @@ const findOverlappingTasks = (tasks: TaskWithSlot[]): TaskWithSlot[] => {
   return tasks.map((task, index) => {
     const taskStart = parseTimeToMinutes(task.slot.start_time);
     const taskEnd = parseTimeToMinutes(task.slot.end_time);
-    
     for (let i = 0; i < tasks.length; i++) {
       if (i === index) continue;
       const otherStart = parseTimeToMinutes(tasks[i].slot.start_time);
       const otherEnd = parseTimeToMinutes(tasks[i].slot.end_time);
-      
-      // Check overlap
-      if ((taskStart < otherEnd && taskEnd > otherStart) || 
+      if ((taskStart < otherEnd && taskEnd > otherStart) ||
           (otherStart < taskEnd && otherEnd > taskStart)) {
         return { ...task, overlappingWith: tasks[i].slot.label };
       }
@@ -137,7 +135,7 @@ const Logo = ({ isDark, colors }: { isDark: boolean; colors: any }) => (
 // =============================================================================
 // EMBOSSED BUTTON
 // =============================================================================
-const EmbossedButton = ({ onPress, children, isDark, colors }: { 
+const EmbossedButton = ({ onPress, children, isDark, colors }: {
   onPress: () => void; children: React.ReactNode; isDark: boolean; colors: any;
 }) => {
   const [isPressed, setIsPressed] = useState(false);
@@ -159,17 +157,17 @@ const EmbossedButton = ({ onPress, children, isDark, colors }: {
 };
 
 // =============================================================================
-// ANIMATED CHECKBOX - Scale + glow pulse + fade-in check
+// ANIMATED CHECKBOX
 // =============================================================================
-const AnimatedCheckbox = ({ 
-  isCompleted, 
-  onToggle, 
-  colors, 
-  isDark 
-}: { 
-  isCompleted: boolean; 
-  onToggle: () => void; 
-  colors: any; 
+const AnimatedCheckbox = ({
+  isCompleted,
+  onToggle,
+  colors,
+  isDark
+}: {
+  isCompleted: boolean;
+  onToggle: () => void;
+  colors: any;
   isDark: boolean;
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -178,7 +176,6 @@ const AnimatedCheckbox = ({
 
   useEffect(() => {
     if (isCompleted) {
-      // Scale up + glow pulse + fade in check
       Animated.parallel([
         Animated.sequence([
           Animated.timing(scaleAnim, { toValue: 1.2, duration: 150, useNativeDriver: true }),
@@ -197,7 +194,6 @@ const AnimatedCheckbox = ({
   }, [isCompleted]);
 
   const handlePress = () => {
-    // Quick feedback animation
     Animated.sequence([
       Animated.timing(scaleAnim, { toValue: 0.9, duration: 50, useNativeDriver: true }),
       Animated.timing(scaleAnim, { toValue: 1, duration: 50, useNativeDriver: true }),
@@ -205,16 +201,11 @@ const AnimatedCheckbox = ({
     onToggle();
   };
 
-  const glowStyle = glowAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 8],
-  });
-
   return (
     <TouchableOpacity onPress={handlePress} activeOpacity={0.8}>
       <Animated.View style={[
         styles.checkbox,
-        { 
+        {
           borderColor: isCompleted ? colors.success : colors.iconInactive,
           backgroundColor: isCompleted ? colors.success : 'transparent',
           transform: [{ scale: scaleAnim }],
@@ -229,18 +220,18 @@ const AnimatedCheckbox = ({
 };
 
 // =============================================================================
-// TASK ITEM - With overlapping warning and current task highlight
+// TASK ITEM
 // =============================================================================
-const TaskItem = ({ 
-  task, 
+const TaskItem = ({
+  task,
   onToggle,
   onFocus,
   onNotesPress,
   isDark,
   colors,
   fadeOpacity,
-}: { 
-  task: TaskWithSlot; 
+}: {
+  task: TaskWithSlot;
   onToggle: (taskId: string, completed: boolean) => void;
   onFocus: (task: TaskWithSlot) => void;
   onNotesPress: (task: TaskWithSlot) => void;
@@ -252,47 +243,39 @@ const TaskItem = ({
   const isCurrent = task.isCurrentTask;
   const hasNotes = task.slot.notes;
 
-  // Only highlight the checkbox icon when completed, not the whole card
   const cardStyle = [
     styles.taskItem,
     { backgroundColor: colors.card },
     getCardShadow(isDark),
-    isCurrent && !isCompleted && getActiveGlow(colors), // Orange glow for current task
+    isCurrent && !isCompleted && getActiveGlow(colors),
   ];
 
-  // Handle tap anywhere on task to toggle
   const handleTaskPress = () => {
     onToggle(task.id, !task.completed);
   };
 
   return (
     <Animated.View style={[{ opacity: fadeOpacity || 1 }]}>
-      <TouchableOpacity 
-        style={cardStyle} 
+      <TouchableOpacity
+        style={cardStyle}
         onPress={handleTaskPress}
         activeOpacity={0.7}
       >
-        {/* Animated Checkbox - only this turns green */}
         <AnimatedCheckbox
           isCompleted={isCompleted}
           onToggle={handleTaskPress}
           colors={colors}
           isDark={isDark}
         />
-        
-        {/* Icon - stays neutral color */}
-        <View style={[
-          styles.taskIconContainer,
-          { backgroundColor: colors.surface },
-        ]}>
-          <Ionicons 
-            name={getIconName(task.slot.icon)} 
-            size={20} 
-            color={isCurrent && !isCompleted ? colors.accent : colors.iconInactive} 
+
+        <View style={[styles.taskIconContainer, { backgroundColor: colors.surface }]}>
+          <Ionicons
+            name={getIconName(task.slot.icon)}
+            size={20}
+            color={isCurrent && !isCompleted ? colors.accent : colors.iconInactive}
           />
         </View>
-        
-        {/* Content */}
+
         <View style={styles.taskContent}>
           <View style={styles.taskHeader}>
             <Text style={[
@@ -308,12 +291,11 @@ const TaskItem = ({
               </View>
             )}
           </View>
-          
+
           <Text style={[styles.taskTime, { color: colors.textInactive }]}>
             {task.slot.start_time} — {task.slot.end_time}
           </Text>
-          
-          {/* Overlapping warning */}
+
           {task.overlappingWith && !isCompleted && (
             <View style={styles.warningRow}>
               <Ionicons name="warning-outline" size={12} color={colors.warning} />
@@ -324,26 +306,23 @@ const TaskItem = ({
           )}
         </View>
 
-        {/* Right side icons - Notes icon always visible */}
         <View style={styles.taskActions}>
-          {/* Notes icon - always show, filled if has notes */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.notesButton, { backgroundColor: colors.surface }]}
             onPress={(e) => {
               e.stopPropagation();
               onNotesPress(task);
             }}
           >
-            <Ionicons 
-              name={hasNotes ? "document-text" : "document-text-outline"} 
-              size={16} 
-              color={hasNotes ? colors.accent : colors.textInactive} 
+            <Ionicons
+              name={hasNotes ? "document-text" : "document-text-outline"}
+              size={16}
+              color={hasNotes ? colors.accent : colors.textInactive}
             />
           </TouchableOpacity>
-          
-          {/* Focus button for current task */}
+
           {isCurrent && !isCompleted && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.focusButton, { backgroundColor: colors.accentGlow }]}
               onPress={(e) => {
                 e.stopPropagation();
@@ -356,75 +335,6 @@ const TaskItem = ({
         </View>
       </TouchableOpacity>
     </Animated.View>
-  );
-};
-
-// =============================================================================
-// PROGRESS CARD - Rectangular with Day/Date on top
-// =============================================================================
-const ProgressCard = ({ 
-  completed, 
-  total, 
-  dayName, 
-  dateText,
-  isDark, 
-  colors 
-}: { 
-  completed: number; 
-  total: number; 
-  dayName: string;
-  dateText: string;
-  isDark: boolean; 
-  colors: any;
-}) => {
-  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-  
-  // Pastel green color for progress
-  const progressColor = colors.progressGreen;
-  
-  const barWidthAnim = useRef(new Animated.Value(0)).current;
-  
-  useEffect(() => {
-    Animated.timing(barWidthAnim, {
-      toValue: percentage,
-      duration: 800,
-      useNativeDriver: false,
-    }).start();
-  }, [percentage]);
-
-  return (
-    <View style={[styles.progressCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
-      {/* Day and Date - Always visible at top */}
-      <View style={styles.progressDateRow}>
-        <Text style={[styles.progressDayName, { color: colors.textPrimary }]}>{dayName}</Text>
-        <Text style={[styles.progressDateDivider, { color: colors.textInactive }]}>•</Text>
-        <Text style={[styles.progressDateText, { color: colors.textInactive }]}>{dateText}</Text>
-      </View>
-      
-      {/* Completion count */}
-      <Text style={[styles.progressActivityCount, { color: colors.textSecondary }]}>
-        {completed} of {total} completed
-      </Text>
-      
-      {/* Progress Bar */}
-      <View style={styles.progressBarRow}>
-        <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
-          <Animated.View
-            style={[
-              styles.progressBarFill,
-              {
-                backgroundColor: progressColor,
-                width: barWidthAnim.interpolate({
-                  inputRange: [0, 100],
-                  outputRange: ['0%', '100%'],
-                }),
-              },
-            ]}
-          />
-        </View>
-        <Text style={[styles.progressPercentageSmall, { color: progressColor }]}>{percentage}%</Text>
-      </View>
-    </View>
   );
 };
 
@@ -465,16 +375,15 @@ const NotesEditModal = ({
 
   return (
     <Modal visible={visible} transparent animationType="fade">
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.modalOverlay}
       >
         <Pressable style={styles.modalOverlay} onPress={onClose}>
-          <Pressable 
+          <Pressable
             style={[styles.notesModal, { backgroundColor: colors.card }]}
             onPress={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <View style={styles.notesModalHeader}>
               <View style={styles.notesModalTitleRow}>
                 <Ionicons name={getIconName(task.slot.icon)} size={20} color={colors.accent} />
@@ -489,13 +398,12 @@ const NotesEditModal = ({
 
             <View style={[styles.notesModalDivider, { backgroundColor: colors.divider }]} />
 
-            {/* Notes Input */}
             <Text style={[styles.notesModalLabel, { color: colors.textInactive }]}>NOTES</Text>
             <TextInput
               style={[
                 styles.notesInput,
-                { 
-                  backgroundColor: colors.surface, 
+                {
+                  backgroundColor: colors.surface,
                   color: colors.textPrimary,
                   borderColor: colors.accent,
                 }
@@ -510,15 +418,14 @@ const NotesEditModal = ({
               autoFocus
             />
 
-            {/* Buttons */}
             <View style={styles.notesModalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.notesModalBtn, { backgroundColor: colors.surface }]}
                 onPress={onClose}
               >
                 <Text style={[styles.notesModalBtnText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.notesModalBtn, { backgroundColor: colors.accent }]}
                 onPress={handleSave}
               >
@@ -547,7 +454,7 @@ export default function TodayScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [notesModalVisible, setNotesModalVisible] = useState(false);
   const [selectedTaskForNotes, setSelectedTaskForNotes] = useState<TaskWithSlot | null>(null);
-  
+
   const scrollY = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef<FlatList>(null);
   const currentTaskIndex = useRef<number>(-1);
@@ -562,7 +469,7 @@ export default function TodayScreen() {
         fetch(`${API_URL}/api/schedule-slots`),
         fetch(`${API_URL}/api/daily-tasks/${dateStr}`),
       ]);
-      
+
       const slotsData = await slotsRes.json();
       const tasksData = await tasksRes.json();
 
@@ -570,8 +477,8 @@ export default function TodayScreen() {
         .map((task: DailyTask) => {
           const slot = slotsData.find((s: ScheduleSlot) => s.id === task.slot_id);
           if (!slot) return null;
-          return { 
-            ...task, 
+          return {
+            ...task,
             slot,
             isCurrentTask: isToday && isCurrentTask(slot.start_time, slot.end_time),
           };
@@ -579,14 +486,11 @@ export default function TodayScreen() {
         .filter(Boolean)
         .sort((a: TaskWithSlot, b: TaskWithSlot) => a.slot.order_index - b.slot.order_index);
 
-      // Find overlapping tasks
       tasksWithSlots = findOverlappingTasks(tasksWithSlots);
-      
-      // Find current task index for auto-scroll
       currentTaskIndex.current = tasksWithSlots.findIndex(t => t.isCurrentTask);
 
       setTasks(tasksWithSlots);
-      
+
       const total = tasksWithSlots.length;
       const completed = tasksWithSlots.filter((t: TaskWithSlot) => t.completed).length;
       setProgress({ total, completed, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 });
@@ -662,16 +566,14 @@ export default function TodayScreen() {
 
   const handleSaveNotes = async (slotId: string, notes: string) => {
     try {
-      // Update the slot in the backend
       await fetch(`${API_URL}/api/schedule-slots/${slotId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes }),
       });
-      
-      // Update local state
-      setTasks(prev => prev.map(t => 
-        t.slot.id === slotId 
+
+      setTasks(prev => prev.map(t =>
+        t.slot.id === slotId
           ? { ...t, slot: { ...t.slot, notes } }
           : t
       ));
@@ -680,32 +582,38 @@ export default function TodayScreen() {
     }
   };
 
-  // Scroll animations
+  // =============================================================================
+  // SCROLL ANIMATIONS (from V1)
+  // =============================================================================
+
+  // Logo + subtitle fade out as user scrolls
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT / 2, HEADER_HEIGHT],
+    outputRange: [1, 0.3, 0],
+    extrapolate: 'clamp',
+  });
+
+  // Date nav fades out slightly earlier
+  const dateOpacity = scrollY.interpolate({
+    inputRange: [0, DATE_SECTION_HEIGHT, HEADER_HEIGHT],
     outputRange: [1, 0.5, 0],
     extrapolate: 'clamp',
   });
 
+  // Progress card slides up to stick at top
   const progressTranslateY = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT],
-    outputRange: [0, -HEADER_HEIGHT],
+    inputRange: [0, HEADER_HEIGHT, HEADER_HEIGHT + 1],
+    outputRange: [0, -HEADER_HEIGHT, -HEADER_HEIGHT],
     extrapolate: 'clamp',
   });
 
-  const dateInfoOpacity = scrollY.interpolate({
+  // Day/Date fades IN inside the progress card as we scroll
+  const progressDateOpacity = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT / 2, HEADER_HEIGHT],
     outputRange: [0, 0.5, 1],
     extrapolate: 'clamp',
   });
 
-  const barPosition = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT],
-    outputRange: [0, 10],
-    extrapolate: 'clamp',
-  });
-
-  // Task fade as it scrolls under progress card
   const getTaskFadeOpacity = (index: number) => {
     return scrollY.interpolate({
       inputRange: [0, HEADER_HEIGHT + (index * 80), HEADER_HEIGHT + (index * 80) + 40],
@@ -733,55 +641,64 @@ export default function TodayScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient colors={colors.bgGradient as any} style={StyleSheet.absoluteFillObject} />
-      
+
       <View style={[styles.safeArea, { paddingTop: insets.top }]}>
-        {/* Fixed Header - Logo, Subtitle, Date Nav */}
+
+        {/* ── Fixed Header: Logo + Subtitle (fades out on scroll) ── */}
         <Animated.View style={[styles.fixedHeader, { opacity: headerOpacity }]}>
           <Logo isDark={isDark} colors={colors} />
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Stay consistent, stay focused
           </Text>
-          
-          {/* Date Navigation */}
-          <View style={styles.dateNav}>
-            <EmbossedButton onPress={goToPrevDay} isDark={isDark} colors={colors}>
-              <Ionicons name="chevron-back" size={20} color={colors.textSecondary} />
-            </EmbossedButton>
-            
-            <View style={styles.dateCenter}>
-              <Text style={[styles.dateLabel, { color: colors.textPrimary }]}>
-                {isToday ? 'Today' : dayName}
-              </Text>
-              <Text style={[styles.dateText, { color: colors.textInactive }]}>
-                {format(currentDate, 'MMMM d, yyyy')}
-              </Text>
-            </View>
-            
-            <EmbossedButton onPress={goToNextDay} isDark={isDark} colors={colors}>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-            </EmbossedButton>
+        </Animated.View>
+
+        {/* ── Date Navigation (fades out on scroll) ── */}
+        <Animated.View style={[
+          styles.dateNav,
+          { top: insets.top + LOGO_SECTION_HEIGHT, opacity: dateOpacity }
+        ]}>
+          <EmbossedButton onPress={goToPrevDay} isDark={isDark} colors={colors}>
+            <Ionicons name="chevron-back" size={20} color={colors.textSecondary} />
+          </EmbossedButton>
+
+          <View style={styles.dateCenter}>
+            <Text style={[styles.dateLabel, { color: colors.textPrimary }]}>
+              {isToday ? 'Today' : dayName}
+            </Text>
+            <Text style={[styles.dateText, { color: colors.textInactive }]}>
+              {format(currentDate, 'MMMM d, yyyy')}
+            </Text>
+          </View>
+
+          <EmbossedButton onPress={goToNextDay} isDark={isDark} colors={colors}>
+            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+          </EmbossedButton>
+        </Animated.View>
+
+        {/* ── Progress Card: slides up and sticks, date fades in ── */}
+        <Animated.View style={[
+          styles.progressCardWrapper,
+          {
+            top: insets.top + HEADER_HEIGHT,
+            transform: [{ translateY: progressTranslateY }],
+            zIndex: 100,
+          }
+        ]}>
+          <View style={[styles.progressCardInner, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
+            <ProgressCard
+              completed={progress.completed}
+              total={progress.total}
+              isDark={isDark}
+              colors={colors}
+              showDateInfo={true}
+              dateInfoOpacity={progressDateOpacity}
+              dayName={isToday ? 'Today' : dayName}
+              dateText={format(currentDate, 'MMMM d, yyyy')}
+            />
           </View>
         </Animated.View>
 
-        {/* Progress Card - Sticky on scroll */}
-        <Animated.View style={[
-          styles.progressCardWrapper,
-          { 
-            top: insets.top + HEADER_HEIGHT,
-            transform: [{ translateY: progressTranslateY }],
-          }
-        ]}>
-          <ProgressCard
-            completed={progress.completed}
-            total={progress.total}
-            dayName={isToday ? 'Today' : dayName}
-            dateText={format(currentDate, 'MMMM d, yyyy')}
-            isDark={isDark}
-            colors={colors}
-          />
-        </Animated.View>
-
-        {/* Tasks List */}
+        {/* ── Task List ── */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.accent} />
@@ -794,7 +711,7 @@ export default function TodayScreen() {
             renderItem={renderTask}
             ListHeaderComponent={ListHeader}
             contentContainerStyle={[
-              styles.listContent, 
+              styles.listContent,
               { paddingTop: HEADER_HEIGHT + SPACING.md }
             ]}
             showsVerticalScrollIndicator={false}
@@ -820,7 +737,7 @@ export default function TodayScreen() {
         )}
       </View>
 
-      {/* Notes Edit Modal */}
+      {/* Notes Modal */}
       <NotesEditModal
         visible={notesModalVisible}
         task={selectedTaskForNotes}
@@ -842,44 +759,51 @@ export default function TodayScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
-  
+
+  // Fixed header: logo + subtitle
   fixedHeader: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     zIndex: 1,
-    paddingTop: 44,
   },
   logoContainer: {
     marginHorizontal: SPACING.lg,
-    paddingVertical: 12,
+    marginTop: 10,
+    paddingVertical: 14,
     paddingHorizontal: SPACING.lg,
-    borderRadius: 12,
+    borderRadius: 14,
   },
   logoText: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     letterSpacing: -0.5,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 12,
-    marginTop: 6,
+    fontSize: 13,
+    marginTop: 8,
     textAlign: 'center',
+    marginBottom: 8,
   },
-  
+
+  // Date navigation row
   dateNav: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
-    marginTop: SPACING.md,
+    paddingVertical: 8,
+    zIndex: 2,
   },
   embossedButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -887,96 +811,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dateLabel: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
   },
   dateText: {
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 2,
   },
-  
+
+  // Progress card wrapper
   progressCardWrapper: {
     position: 'absolute',
     left: SPACING.lg,
     right: SPACING.lg,
-    zIndex: 10,
   },
-  progressCard: {
+  progressCardInner: {
     borderRadius: 14,
-    padding: SPACING.md,
     overflow: 'hidden',
   },
-  progressDateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  progressDayName: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  progressDateDivider: {
-    fontSize: 14,
-    marginHorizontal: 8,
-  },
-  progressDateText: {
-    fontSize: 14,
-  },
-  progressActivityCount: {
-    fontSize: 13,
-    fontWeight: '500',
-    marginBottom: SPACING.sm,
-  },
-  progressBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.md,
-  },
-  progressBarBg: {
-    flex: 1,
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  progressPercentageSmall: {
-    fontSize: 14,
-    fontWeight: '700',
-    minWidth: 40,
-    textAlign: 'right',
-  },
-  
-  // Old styles (keep for compatibility)
-  progressDateInfo: {
-    marginBottom: SPACING.xs,
-  },
-  progressContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  progressCircleContainer: {
-    width: 64,
-    height: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: SPACING.md,
-  },
-  progressCircleText: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressPercentage: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  progressInfo: {
-    flex: 1,
-  },
-  
+
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -986,7 +839,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.xl,
   },
-  
+
+  // Task styles
   taskItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1023,6 +877,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     flex: 1,
+  },
+  taskLabelCompleted: {
+    textDecorationLine: 'line-through',
+    textDecorationStyle: 'solid',
+    opacity: 0.7,
   },
   currentBadge: {
     paddingHorizontal: 6,
@@ -1065,13 +924,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  taskLabelCompleted: {
-    textDecorationLine: 'line-through',
-    textDecorationStyle: 'solid',
-    opacity: 0.7,
-  },
-  
-  // Notes Modal Styles
+
+  // Notes Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.75)',
