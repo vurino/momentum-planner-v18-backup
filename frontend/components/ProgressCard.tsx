@@ -29,8 +29,6 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
   dateText = '',
 }) => {
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-  // Pastel green from V2 theme
   const progressColor = colors.progressGreen;
 
   const barWidthAnim = useRef(new Animated.Value(0)).current;
@@ -44,19 +42,34 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
     }).start();
   }, [percentage]);
 
-  // dateInfoOpacity drives how much the date row takes up space.
-  // We animate paddingTop of the content so it slides down as date fades in.
+  // Centered text fades OUT as we scroll (opacity 1 → 0)
+  const centeredOpacity = dateInfoOpacity
+    ? dateInfoOpacity.interpolate({
+        inputRange: [0, 1],
+        outputRange: [1, 0],
+      })
+    : new Animated.Value(1);
+
+  // Left-aligned text fades IN as we scroll (opacity 0 → 1)
+  const leftOpacity = dateInfoOpacity
+    ? dateInfoOpacity.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 1],
+      })
+    : new Animated.Value(0);
+
+  // Content slides down slightly to make room for date row
   const contentPaddingTop = dateInfoOpacity
     ? dateInfoOpacity.interpolate({
         inputRange: [0, 1],
-        outputRange: [0, 8],
+        outputRange: [0, 6],
       })
     : new Animated.Value(0);
 
   return (
     <View style={styles.container}>
 
-      {/* Day / Date row — fades in as card sticks to top */}
+      {/* Day · Date row — fades in as card sticks to top */}
       {showDateInfo && dateInfoOpacity && (
         <Animated.View style={[styles.dateRow, { opacity: dateInfoOpacity }]}>
           <Text style={[styles.dayName, { color: colors.textPrimary }]}>
@@ -71,15 +84,28 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
         </Animated.View>
       )}
 
-      {/* Progress content — slides down to make room for date */}
+      {/* Progress content */}
       <Animated.View style={[styles.progressContent, { paddingTop: contentPaddingTop }]}>
 
-        {/* "x of x completed" */}
-        <Text style={[styles.activityCount, { color: colors.textSecondary }]}>
-          {completed} of {total} completed
-        </Text>
+        {/* Two overlapping texts that cross-fade:
+            - centered when app opens
+            - left-aligned when scrolled */}
+        <View style={styles.activityCountWrapper}>
+          <Animated.Text style={[
+            styles.activityCountCentered,
+            { color: colors.textSecondary, opacity: centeredOpacity }
+          ]}>
+            {completed} of {total} completed
+          </Animated.Text>
+          <Animated.Text style={[
+            styles.activityCountLeft,
+            { color: colors.textSecondary, opacity: leftOpacity }
+          ]}>
+            {completed} of {total} completed
+          </Animated.Text>
+        </View>
 
-        {/* Progress bar + percentage on same row */}
+        {/* Progress bar + percentage */}
         <View style={styles.barRow}>
           <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#2a3344' : '#d5d0c5' }]}>
             <Animated.View
@@ -108,10 +134,10 @@ export const ProgressCard: React.FC<ProgressCardProps> = ({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
 
-  // Day · Date row at top of card
   dateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -128,18 +154,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // Content block that slides down
   progressContent: {
     justifyContent: 'center',
   },
-  activityCount: {
+
+  // Wrapper holds both text versions overlapping
+  activityCountWrapper: {
+    height: 20,
+    marginBottom: 8,
+  },
+  activityCountCentered: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     fontSize: 13,
     fontWeight: '600',
-    marginBottom: 8,
     textAlign: 'center',
   },
+  activityCountLeft: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'left',
+  },
 
-  // Bar + % on same row
   barRow: {
     flexDirection: 'row',
     alignItems: 'center',

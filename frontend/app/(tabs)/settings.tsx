@@ -1,18 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  Dimensions,
-  ScrollView,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
-  Keyboard,
+  View, Text, StyleSheet, TouchableOpacity, TextInput,
+  ActivityIndicator, Modal, Pressable, Dimensions,
+  ScrollView, Animated, Keyboard, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,17 +10,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
 import { useTheme, getCardShadow, SPACING, CARD_PADDING } from '../../context/ThemeContext';
 import { TimeEditModal } from '../../components/TimeEditModal';
-import { ConfirmModal, CustomModal } from '../../components/CustomModal';
+import { ConfirmModal } from '../../components/CustomModal';
 import { TaskEditPanel } from '../../components/TaskEditPanel';
-
+ 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// Layout constants
-const APPEARANCE_PANEL_HEIGHT = 50;
-const DAY_PANEL_HEIGHT = APPEARANCE_PANEL_HEIGHT * 1.7;
-const DAY_WHEEL_ITEM_HEIGHT = 30;
-
+ 
+const DAY_WHEEL_ITEM_HEIGHT = 32;
+ 
 interface ScheduleSlot {
   id: string;
   label: string;
@@ -42,11 +29,10 @@ interface ScheduleSlot {
   days: string[];
   notes?: string;
 }
-
-// Day options
+ 
 const DAY_OPTIONS = [
-  { key: 'weekdays', label: 'Weekdays', days: ['mon', 'tue', 'wed', 'thu', 'fri'] },
-  { key: 'weekends', label: 'Weekends', days: ['sat', 'sun'] },
+  { key: 'weekdays', label: 'Weekdays', days: ['mon','tue','wed','thu','fri'] },
+  { key: 'weekends', label: 'Weekends', days: ['sat','sun'] },
   { key: 'mon', label: 'Monday', days: ['mon'] },
   { key: 'tue', label: 'Tuesday', days: ['tue'] },
   { key: 'wed', label: 'Wednesday', days: ['wed'] },
@@ -55,97 +41,118 @@ const DAY_OPTIONS = [
   { key: 'sat', label: 'Saturday', days: ['sat'] },
   { key: 'sun', label: 'Sunday', days: ['sun'] },
 ];
-
-// Icon options
-const ICON_OPTIONS = [
-  'restaurant', 'sunny', 'briefcase', 'cafe', 'trending-up', 'book', 
-  'fitness', 'fast-food', 'analytics', 'code', 'moon', 'bed', 
-  'time', 'heart', 'musical-notes', 'game-controller', 'car', 'home',
-  'pencil', 'school', 'walk', 'water', 'leaf', 'medkit',
-];
-
-// Icon mapping
+ 
 const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
   const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-    'restaurant': 'restaurant-outline', 'sunny': 'sunny-outline', 'briefcase': 'briefcase-outline',
-    'cafe': 'cafe-outline', 'trending-up': 'trending-up-outline', 'book': 'book-outline',
-    'fitness': 'fitness-outline', 'fast-food': 'fast-food-outline', 'analytics': 'analytics-outline',
-    'code': 'code-outline', 'moon': 'moon-outline', 'bed': 'bed-outline', 'time': 'time-outline',
-    'heart': 'heart-outline', 'musical-notes': 'musical-notes-outline', 
-    'game-controller': 'game-controller-outline', 'car': 'car-outline', 'home': 'home-outline',
-    'pencil': 'pencil-outline', 'school': 'school-outline', 'walk': 'walk-outline',
-    'water': 'water-outline', 'leaf': 'leaf-outline', 'medkit': 'medkit-outline',
+    'restaurant':'restaurant-outline','sunny':'sunny-outline','briefcase':'briefcase-outline',
+    'cafe':'cafe-outline','trending-up':'trending-up-outline','book':'book-outline',
+    'fitness':'fitness-outline','fast-food':'fast-food-outline','analytics':'analytics-outline',
+    'code':'code-outline','moon':'moon-outline','bed':'bed-outline','time':'time-outline',
+    'heart':'heart-outline','musical-notes':'musical-notes-outline',
+    'game-controller':'game-controller-outline','car':'car-outline','home':'home-outline',
+    'pencil':'pencil-outline','school':'school-outline','walk':'walk-outline',
+    'water':'water-outline','leaf':'leaf-outline','medkit':'medkit-outline',
   };
   return iconMap[iconName] || 'ellipse-outline';
 };
-
+ 
+const calcDuration = (start: string, end: string): string => {
+  const [sH, sM] = start.split(':').map(Number);
+  const [eH, eM] = end.split(':').map(Number);
+  let diff = (eH * 60 + eM) - (sH * 60 + sM);
+  if (diff < 0) diff += 1440;
+  const h = Math.floor(diff / 60), m = diff % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+};
+ 
 // =============================================================================
-// DAY WHEEL SELECTOR - Center selection (scroll to select)
+// NEUMORPHIC SWITCH
 // =============================================================================
-const DayWheelSelector = ({
-  selectedDays, onSelectDays, isDark, colors,
-}: {
+const NeumorphicSwitch = ({ value, onValueChange, colors }: {
+  value: boolean; onValueChange: (v: boolean) => void; colors: any;
+}) => (
+  <Pressable
+    style={[S.switch, { backgroundColor: value ? colors.accent : colors.surface }]}
+    onPress={() => onValueChange(!value)}
+  >
+    <View style={[S.switchThumb, { backgroundColor: colors.card, marginLeft: value ? 24 : 2 }]} />
+  </Pressable>
+);
+ 
+// =============================================================================
+// DAY WHEEL — fixed snap + orange selection (same pattern as TimeEditModal)
+// =============================================================================
+const DayWheelSelector = ({ selectedDays, onSelectDays, isDark, colors }: {
   selectedDays: string[];
   onSelectDays: (days: string[], key: string) => void;
-  isDark: boolean;
-  colors: any;
+  isDark: boolean; colors: any;
 }) => {
-  const scrollViewRef = useRef<ScrollView>(null);
-  const [selectedIndex, setSelectedIndex] = useState(() => {
-    for (let i = 0; i < DAY_OPTIONS.length; i++) {
-      const opt = DAY_OPTIONS[i];
-      if (opt.days.length === selectedDays.length && opt.days.every(d => selectedDays.includes(d))) {
-        return i;
-      }
-    }
-    return 0;
-  });
-
+  const scrollRef = useRef<ScrollView>(null);
+  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initIdx = DAY_OPTIONS.findIndex(o =>
+    o.days.length === selectedDays.length && o.days.every(d => selectedDays.includes(d))
+  );
+  const [displayIdx, setDisplayIdx] = useState(initIdx >= 0 ? initIdx : 0);
+ 
   useEffect(() => {
     setTimeout(() => {
-      scrollViewRef.current?.scrollTo({ y: selectedIndex * DAY_WHEEL_ITEM_HEIGHT, animated: false });
-    }, 100);
+      scrollRef.current?.scrollTo({ y: displayIdx * DAY_WHEEL_ITEM_HEIGHT, animated: false });
+    }, 80);
   }, []);
-
-  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = event.nativeEvent.contentOffset.y;
-    const index = Math.round(y / DAY_WHEEL_ITEM_HEIGHT);
-    const clampedIndex = Math.max(0, Math.min(index, DAY_OPTIONS.length - 1));
-    
-    if (clampedIndex !== selectedIndex) {
-      setSelectedIndex(clampedIndex);
-      onSelectDays(DAY_OPTIONS[clampedIndex].days, DAY_OPTIONS[clampedIndex].key);
-    }
-    scrollViewRef.current?.scrollTo({ y: clampedIndex * DAY_WHEEL_ITEM_HEIGHT, animated: true });
-  };
-
+ 
+  const doSnap = useCallback((y: number) => {
+    const idx = Math.max(0, Math.min(Math.round(y / DAY_WHEEL_ITEM_HEIGHT), DAY_OPTIONS.length - 1));
+    scrollRef.current?.scrollTo({ y: idx * DAY_WHEEL_ITEM_HEIGHT, animated: false });
+    setDisplayIdx(idx);
+    onSelectDays(DAY_OPTIONS[idx].days, DAY_OPTIONS[idx].key);
+  }, [onSelectDays]);
+ 
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const idx = Math.max(0, Math.min(Math.round(y / DAY_WHEEL_ITEM_HEIGHT), DAY_OPTIONS.length - 1));
+    setDisplayIdx(idx);
+    if (snapTimer.current) clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => doSnap(y), 80);
+  }, [doSnap]);
+ 
+  const handleScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (snapTimer.current) clearTimeout(snapTimer.current);
+    doSnap(e.nativeEvent.contentOffset.y);
+  }, [doSnap]);
+ 
   return (
-    <View style={[styles.dayWheelContainer, { backgroundColor: colors.card, height: DAY_PANEL_HEIGHT }, getCardShadow(isDark)]}>
-      <Text style={[styles.dayWheelLabel, { color: colors.textInactive }]}>DAY</Text>
-      <View style={styles.wheelWrapper}>
-        <View style={[styles.wheelSelectionIndicator, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)' }]} />
+    <View style={[S.dayCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
+      <Text style={[S.dayLabel, { color: colors.textInactive }]}>DAY</Text>
+      <View style={S.dayWheelWrapper}>
+        <View style={[S.daySelIndicator, {
+          backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)',
+        }]} />
         <ScrollView
-          ref={scrollViewRef}
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           snapToInterval={DAY_WHEEL_ITEM_HEIGHT}
-          decelerationRate="fast"
+          decelerationRate={0.9}
+          scrollEventThrottle={16}
+          disableIntervalMomentum={true}
+          onScroll={handleScroll}
           onMomentumScrollEnd={handleScrollEnd}
           onScrollEndDrag={handleScrollEnd}
           contentContainerStyle={{ paddingVertical: DAY_WHEEL_ITEM_HEIGHT }}
         >
-          {DAY_OPTIONS.map((option, index) => {
-            const isSelected = index === selectedIndex;
-            const distance = Math.abs(index - selectedIndex);
-            const opacity = distance === 0 ? 1 : distance === 1 ? 0.55 : 0.3;
+          {DAY_OPTIONS.map((opt, index) => {
+            const isSel = index === displayIdx;
+            const dist = Math.abs(index - displayIdx);
             return (
-              <View key={option.key} style={[styles.dayWheelItem, { height: DAY_WHEEL_ITEM_HEIGHT }]}>
-                <Text style={[styles.dayWheelItemText, {
-                  color: isSelected ? colors.accent : colors.textSecondary,
-                  fontWeight: isSelected ? '700' : '500',
-                  opacity,
-                  fontSize: isSelected ? 14 : 12,
-                }]}>
-                  {option.label}
+              <View key={opt.key} style={[S.dayItem, { height: DAY_WHEEL_ITEM_HEIGHT }]}>
+                <Text style={{
+                  color: isSel ? colors.accent : colors.textSecondary,
+                  fontWeight: isSel ? '700' : '500',
+                  opacity: dist === 0 ? 1 : dist === 1 ? 0.5 : 0.25,
+                  fontSize: isSel ? 14 : 12,
+                }}>
+                  {opt.label}
                 </Text>
               </View>
             );
@@ -155,400 +162,293 @@ const DayWheelSelector = ({
     </View>
   );
 };
-
+ 
 // =============================================================================
-// ICON PICKER MODAL - Dark themed
+// PREFERENCES PANEL (collapsible)
 // =============================================================================
-const IconPickerModal = ({
-  visible, onClose, onSelect, currentIcon, isDark, colors,
-}: {
-  visible: boolean; onClose: () => void; onSelect: (icon: string) => void;
-  currentIcon: string; isDark: boolean; colors: any;
-}) => (
-  <Modal visible={visible} transparent animationType="fade">
-    <Pressable style={styles.modalOverlay} onPress={onClose}>
-      <Pressable style={[styles.iconPickerModal, { backgroundColor: colors.card }, getCardShadow(isDark)]} onPress={e => e.stopPropagation()}>
-        <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Icon</Text>
-        <View style={[styles.modalDivider, { backgroundColor: colors.divider }]} />
-        <View style={styles.iconGrid}>
-          {ICON_OPTIONS.map((icon) => (
-            <TouchableOpacity
-              key={icon}
-              style={[
-                styles.iconOption, 
-                { backgroundColor: colors.surface },
-                currentIcon === icon && { backgroundColor: colors.accentGlow, borderColor: colors.accent, borderWidth: 1 },
-              ]}
-              onPress={() => { onSelect(icon); onClose(); }}
-            >
-              <Ionicons name={getIconName(icon)} size={20} color={currentIcon === icon ? colors.accent : colors.iconInactive} />
-            </TouchableOpacity>
-          ))}
-        </View>
-      </Pressable>
-    </Pressable>
-  </Modal>
-);
-
-// =============================================================================
-// ACTIVITY EDIT MODAL - For editing name/icon/notes
-// =============================================================================
-const ActivityEditModal = ({
-  visible, onClose, onSave, slot, isDark, colors,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onSave: (updates: Partial<ScheduleSlot>) => void;
-  slot: ScheduleSlot | null;
-  isDark: boolean;
-  colors: any;
-}) => {
-  const [name, setName] = useState(slot?.label || '');
-  const [icon, setIcon] = useState(slot?.icon || 'time');
-  const [notes, setNotes] = useState(slot?.notes || '');
-  const [showIconPicker, setShowIconPicker] = useState(false);
-
-  useEffect(() => {
-    if (slot) {
-      setName(slot.label);
-      setIcon(slot.icon);
-      setNotes(slot.notes || '');
-    }
-  }, [slot]);
-
-  const handleSave = () => {
-    onSave({ label: name, icon, notes });
-    Keyboard.dismiss();
-    onClose();
+const PreferencesPanel = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
+  const {
+    toggleTheme, weekStartsOnMonday, setWeekStartsOnMonday,
+    ignoreOverlaps, setIgnoreOverlaps, cascadeMode, setCascadeMode,
+  } = useTheme();
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+ 
+  // Local state mirrors for immediate UI response
+  const [localIgnoreOverlaps, setLocalIgnoreOverlaps] = useState(ignoreOverlaps);
+  const [localCascadeMode, setLocalCascadeMode] = useState(cascadeMode);
+ 
+  const handleIgnoreOverlaps = (val: boolean) => {
+    setLocalIgnoreOverlaps(val);
+    setIgnoreOverlaps(val);
   };
-
-  if (!slot) return null;
-
+ 
+  const handleCascadeMode = () => {
+    const next = localCascadeMode === 'shift-up' ? 'shift-down' : 'shift-up';
+    setLocalCascadeMode(next);
+    setCascadeMode(next);
+  };
+ 
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <Pressable style={styles.modalOverlay} onPress={() => { Keyboard.dismiss(); onClose(); }}>
-        <Pressable style={[styles.editModal, { backgroundColor: colors.card }, getCardShadow(isDark)]} onPress={e => e.stopPropagation()}>
-          <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Edit Activity</Text>
-          <View style={[styles.modalDivider, { backgroundColor: colors.divider }]} />
-          
-          {/* Icon selector */}
-          <View style={styles.editRow}>
-            <Text style={[styles.editLabel, { color: colors.textInactive }]}>ICON</Text>
-            <TouchableOpacity 
-              style={[styles.iconSelectButton, { backgroundColor: colors.surface }]}
-              onPress={() => setShowIconPicker(true)}
-            >
-              <Ionicons name={getIconName(icon)} size={22} color={colors.accent} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Name input */}
-          <View style={styles.editRow}>
-            <Text style={[styles.editLabel, { color: colors.textInactive }]}>NAME</Text>
-            <TextInput
-              style={[styles.editInput, { backgroundColor: colors.surface, color: colors.textPrimary }]}
-              value={name}
-              onChangeText={setName}
-              placeholder="Activity name"
-              placeholderTextColor={colors.textInactive}
-            />
-          </View>
-
-          {/* Notes input */}
-          <View style={styles.editRow}>
-            <Text style={[styles.editLabel, { color: colors.textInactive }]}>NOTES</Text>
-            <TextInput
-              style={[styles.editInput, styles.notesInput, { backgroundColor: colors.surface, color: colors.textPrimary }]}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Optional notes"
-              placeholderTextColor={colors.textInactive}
-              multiline
-              numberOfLines={3}
-            />
-          </View>
-
-          {/* Buttons */}
-          <View style={styles.editButtons}>
-            <TouchableOpacity style={[styles.editButton, { backgroundColor: colors.surface }]} onPress={onClose}>
-              <Text style={[styles.editButtonText, { color: colors.textSecondary }]}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.editButton, { backgroundColor: colors.accent }]} onPress={handleSave}>
-              <Text style={[styles.editButtonText, { color: '#fff' }]}>Save</Text>
-            </TouchableOpacity>
-          </View>
-        </Pressable>
-      </Pressable>
-
-      {/* Nested Icon Picker */}
-      <IconPickerModal
-        visible={showIconPicker}
-        onClose={() => setShowIconPicker(false)}
-        onSelect={setIcon}
-        currentIcon={icon}
+    <View style={[S.prefsPanel, {
+      backgroundColor: colors.surface,
+      borderColor: isDark ? 'rgba(255,106,46,0.18)' : 'rgba(255,106,46,0.12)',
+    }]}>
+      <Text style={[S.prefsPanelTitle, { color: colors.textInactive }]}>PREFERENCES</Text>
+ 
+      {/* Dark Mode */}
+      <View style={S.prefRow}>
+        <View style={S.prefLeft}>
+          <Ionicons name={isDark ? 'moon-outline' : 'sunny-outline'} size={16} color={colors.accent} />
+          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Dark Mode</Text>
+        </View>
+        <NeumorphicSwitch value={isDark} onValueChange={() => toggleTheme()} colors={colors} />
+      </View>
+ 
+      {/* Week starts Mon */}
+      <View style={S.prefRow}>
+        <View style={S.prefLeft}>
+          <Ionicons name="calendar-outline" size={16} color={colors.accent} />
+          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Week starts Mon</Text>
+        </View>
+        <NeumorphicSwitch value={weekStartsOnMonday} onValueChange={setWeekStartsOnMonday} colors={colors} />
+      </View>
+ 
+      {/* Ignore overlaps */}
+      <View style={S.prefRow}>
+        <View style={S.prefLeft}>
+          <Ionicons name="git-merge-outline" size={16} color={colors.accent} />
+          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Ignore overlaps</Text>
+        </View>
+        <NeumorphicSwitch value={localIgnoreOverlaps} onValueChange={handleIgnoreOverlaps} colors={colors} />
+      </View>
+ 
+      {/* Cascade on drag */}
+      <View style={[S.prefRow, { marginBottom: 12 }]}>
+        <View style={S.prefLeft}>
+          <Ionicons name="swap-vertical-outline" size={16} color={colors.accent} />
+          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Cascade on drag</Text>
+        </View>
+        <TouchableOpacity
+          style={[S.cascadePill, { backgroundColor: colors.accentGlow }]}
+          onPress={handleCascadeMode}
+        >
+          <Text style={[S.cascadePillText, { color: colors.accent }]}>
+            {localCascadeMode === 'shift-up' ? 'Shift up ▾' : 'Shift down ▾'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+ 
+      {/* Divider */}
+      <View style={[S.prefDivider, { backgroundColor: colors.divider }]} />
+ 
+      {/* Reset All Data */}
+      <TouchableOpacity
+        style={[S.resetDangerBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]}
+        onPress={() => setShowResetConfirm(true)}
+      >
+        <Ionicons name="trash-outline" size={15} color="#ef4444" />
+        <Text style={S.resetDangerText}>Reset All Data</Text>
+      </TouchableOpacity>
+ 
+      <ConfirmModal
+        visible={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        onConfirm={() => { setShowResetConfirm(false); /* handled by parent */ }}
+        title="Reset All Data"
+        message="This will permanently delete all your activities and reset all settings to defaults."
+        confirmText="Reset"
+        isDanger
         isDark={isDark}
         colors={colors}
       />
-    </Modal>
-  );
-};
-
-// =============================================================================
-// ADD ACTIVITY MODAL - Full form
-// =============================================================================
-const AddActivityModal = ({
-  visible, onClose, onAdd, isDark, colors, selectedDays,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onAdd: (slot: Partial<ScheduleSlot>) => void;
-  isDark: boolean;
-  colors: any;
-  selectedDays: string[];
-}) => {
-  const [name, setName] = useState('');
-  const [icon, setIcon] = useState('time');
-  const [startTime, setStartTime] = useState('09:00');
-  const [endTime, setEndTime] = useState('10:00');
-  const [notes, setNotes] = useState('');
-  const [showIconPicker, setShowIconPicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
-
-  const resetForm = () => {
-    setName('');
-    setIcon('time');
-    setStartTime('09:00');
-    setEndTime('10:00');
-    setNotes('');
-  };
-
-  const handleAdd = () => {
-    if (!name.trim()) return;
-    onAdd({
-      label: name,
-      icon,
-      start_time: startTime,
-      end_time: endTime,
-      notes,
-      days: selectedDays,
-    });
-    Keyboard.dismiss();
-    resetForm();
-    onClose();
-  };
-
-  return (
-    <Modal visible={visible} transparent animationType="fade">
-      <Pressable style={styles.modalOverlay} onPress={() => { Keyboard.dismiss(); onClose(); }}>
-        <Pressable style={[styles.addModal, { backgroundColor: colors.card }, getCardShadow(isDark)]} onPress={e => e.stopPropagation()}>
-          <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add Activity</Text>
-          <View style={[styles.modalDivider, { backgroundColor: colors.divider }]} />
-          
-          {/* Icon & Name row */}
-          <View style={styles.addTopRow}>
-            <TouchableOpacity 
-              style={[styles.iconSelectLarge, { backgroundColor: colors.surface }]}
-              onPress={() => setShowIconPicker(true)}
-            >
-              <Ionicons name={getIconName(icon)} size={26} color={colors.accent} />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.nameInput, { backgroundColor: colors.surface, color: colors.textPrimary }]}
-              value={name}
-              onChangeText={setName}
-              placeholder="Activity name"
-              placeholderTextColor={colors.textInactive}
-            />
-          </View>
-
-          {/* Time row */}
-          <TouchableOpacity 
-            style={[styles.timeRow, { backgroundColor: colors.surface }]}
-            onPress={() => setShowTimePicker(true)}
-          >
-            <Ionicons name="time-outline" size={18} color={colors.textInactive} />
-            <Text style={[styles.timeText, { color: colors.textPrimary }]}>{startTime} — {endTime}</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.textInactive} />
-          </TouchableOpacity>
-
-          {/* Notes */}
-          <TextInput
-            style={[styles.notesInputFull, { backgroundColor: colors.surface, color: colors.textPrimary }]}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Add notes (optional)"
-            placeholderTextColor={colors.textInactive}
-            multiline
-            numberOfLines={2}
-          />
-
-          {/* Buttons */}
-          <View style={styles.addButtons}>
-            <TouchableOpacity style={[styles.addButton, { backgroundColor: colors.surface }]} onPress={onClose}>
-              <Text style={[styles.addButtonText, { color: colors.textSecondary }]}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.addButton, { backgroundColor: name.trim() ? colors.accent : colors.surface }]} 
-              onPress={handleAdd}
-              disabled={!name.trim()}
-            >
-              <Text style={[styles.addButtonText, { color: name.trim() ? '#fff' : colors.textInactive }]}>Add</Text>
-            </TouchableOpacity>
-          </View>
-        </Pressable>
-      </Pressable>
-
-      <IconPickerModal visible={showIconPicker} onClose={() => setShowIconPicker(false)} onSelect={setIcon} currentIcon={icon} isDark={isDark} colors={colors} />
-      <TimeEditModal visible={showTimePicker} onClose={() => setShowTimePicker(false)} onSave={(s, e) => { setStartTime(s); setEndTime(e); setShowTimePicker(false); }} initialStartTime={startTime} initialEndTime={endTime} taskLabel={name || 'New Activity'} isDark={isDark} colors={colors} />
-    </Modal>
-  );
-};
-
-// =============================================================================
-// NEUMORPHIC SWITCH
-// =============================================================================
-const NeumorphicSwitch = ({ value, onValueChange, isDark, colors }: {
-  value: boolean; onValueChange: (value: boolean) => void; isDark: boolean; colors: any;
-}) => (
-  <Pressable style={[styles.neumorphicSwitch, { backgroundColor: value ? colors.accent : colors.surface }]} onPress={() => onValueChange(!value)}>
-    <View style={[styles.switchThumb, { backgroundColor: colors.card }, value ? { marginLeft: 24 } : { marginLeft: 2 }]} />
-  </Pressable>
-);
-
-// =============================================================================
-// SLOT EDITOR - Individual activity item
-// =============================================================================
-const SlotEditor = ({
-  slot, onEdit, onDelete, onOpenTimeEditor, onDrag, isActive, isDark, colors,
-}: {
-  slot: ScheduleSlot;
-  onEdit: () => void;
-  onDelete: () => void;
-  onOpenTimeEditor: () => void;
-  onDrag: () => void;
-  isActive: boolean;
-  isDark: boolean;
-  colors: any;
-}) => {
-  const calculateDuration = (start: string, end: string): string => {
-    const [startH, startM] = start.split(':').map(Number);
-    const [endH, endM] = end.split(':').map(Number);
-    let diff = (endH * 60 + endM) - (startH * 60 + startM);
-    if (diff < 0) diff += 24 * 60;
-    const hours = Math.floor(diff / 60);
-    const mins = diff % 60;
-    if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
-    if (hours > 0) return `${hours}h`;
-    return `${mins}m`;
-  };
-
-  return (
-    <View style={[styles.slotItem, { backgroundColor: colors.card }, getCardShadow(isDark), isActive && { opacity: 0.9 }]}>
-      {/* Drag handle */}
-      <TouchableOpacity style={styles.dragHandle} onLongPress={onDrag} disabled={isActive} delayLongPress={150}>
-        <Ionicons name="menu" size={16} color={isActive ? colors.accent : colors.iconInactive} />
-      </TouchableOpacity>
-
-      {/* Icon - tap to edit activity */}
-      <TouchableOpacity style={[styles.iconSelector, { backgroundColor: colors.surface }]} onPress={onEdit}>
-        <Ionicons name={getIconName(slot.icon)} size={18} color={colors.accent} />
-      </TouchableOpacity>
-
-      {/* Content */}
-      <TouchableOpacity style={styles.slotContent} onPress={onEdit}>
-        <Text style={[styles.slotLabel, { color: colors.textPrimary }]} numberOfLines={1}>{slot.label}</Text>
-        <View style={styles.timeRow2}>
-          <Text style={[styles.timeText2, { color: colors.textInactive }]}>{slot.start_time} — {slot.end_time}</Text>
-          <Text style={[styles.durationText, { color: colors.textInactive }]}>{calculateDuration(slot.start_time, slot.end_time)}</Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Time edit button */}
-      <TouchableOpacity style={styles.timeButton} onPress={onOpenTimeEditor}>
-        <Ionicons name="time-outline" size={16} color={colors.textInactive} />
-      </TouchableOpacity>
-
-      {/* Delete button - dimmed */}
-      <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
-        <Ionicons name="trash-outline" size={14} color={colors.textInactive} />
-      </TouchableOpacity>
     </View>
   );
 };
-
+ 
+// =============================================================================
+// SLOT EDITOR — individual activity row
+// =============================================================================
+const SlotEditor = ({ slot, onEdit, onDelete, onOpenTimeEditor, onDrag, isActive, isDark, colors }: {
+  slot: ScheduleSlot; onEdit: () => void; onDelete: () => void;
+  onOpenTimeEditor: () => void; onDrag: () => void;
+  isActive: boolean; isDark: boolean; colors: any;
+}) => (
+  <View style={[S.slotItem, { backgroundColor: colors.card }, getCardShadow(isDark), isActive && { opacity: 0.9, transform: [{ scale: 1.02 }] }]}>
+    {/* Drag handle — long press */}
+    <TouchableOpacity style={S.dragHandle} onLongPress={onDrag} delayLongPress={200}>
+      <Ionicons name="menu" size={16} color={isActive ? colors.accent : colors.iconInactive} />
+    </TouchableOpacity>
+ 
+    {/* Icon */}
+    <TouchableOpacity style={[S.slotIcon, { backgroundColor: colors.surface }]} onPress={onEdit}>
+      <Ionicons name={getIconName(slot.icon)} size={16} color={colors.accent} />
+    </TouchableOpacity>
+ 
+    {/* Label + time */}
+    <TouchableOpacity style={S.slotContent} onPress={onEdit}>
+      <Text style={[S.slotLabel, { color: colors.textPrimary }]} numberOfLines={1}>{slot.label}</Text>
+      <View style={S.slotTimeRow}>
+        <Text style={[S.slotTime, { color: colors.textInactive }]}>{slot.start_time} — {slot.end_time}</Text>
+        <Text style={[S.slotDur, { color: colors.textInactive }]}>{calcDuration(slot.start_time, slot.end_time)}</Text>
+      </View>
+    </TouchableOpacity>
+ 
+    {/* Time edit */}
+    <TouchableOpacity style={S.slotAction} onPress={onOpenTimeEditor}>
+      <Ionicons name="time-outline" size={16} color={colors.textInactive} />
+    </TouchableOpacity>
+ 
+    {/* Delete */}
+    <TouchableOpacity style={S.slotAction} onPress={onDelete}>
+      <Ionicons name="trash-outline" size={14} color={colors.textInactive} />
+    </TouchableOpacity>
+  </View>
+);
+ 
 // =============================================================================
 // MAIN SETTINGS SCREEN
 // =============================================================================
 export default function SettingsScreen() {
-  const { isDark, colors, toggleTheme, weekStartsOnMonday, setWeekStartsOnMonday } = useTheme();
+  const { isDark, colors, cascadeMode } = useTheme();
   const insets = useSafeAreaInsets();
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-  const [selectedDayFilter, setSelectedDayFilter] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
-  
-  // Modal states
+  const [selectedDayFilter, setSelectedDayFilter] = useState(['mon','tue','wed','thu','fri']);
+  const [showPrefs, setShowPrefs] = useState(false);
+  const prefsAnim = useRef(new Animated.Value(0)).current;
+ 
   const [editSlot, setEditSlot] = useState<ScheduleSlot | null>(null);
   const [timeEditorSlot, setTimeEditorSlot] = useState<ScheduleSlot | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [deleteSlot, setDeleteSlot] = useState<ScheduleSlot | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-
+ 
+  // Overwrite confirmation
+  const [pendingDayChange, setPendingDayChange] = useState<{ days: string[]; key: string } | null>(null);
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
+ 
   const fetchSlots = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/schedule-slots`);
       const data = await res.json();
-      setSlots(data.map((slot: ScheduleSlot) => ({
-        ...slot, days: slot.days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+      setSlots(data.map((s: ScheduleSlot) => ({
+        ...s, days: s.days || ['mon','tue','wed','thu','fri','sat','sun'],
       })));
       setHasChanges(false);
-    } catch (error) {
-      console.error('Error fetching slots:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   }, []);
-
+ 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
-
+ 
+  // Toggle preferences panel with animation
+  const togglePrefs = () => {
+    const toValue = showPrefs ? 0 : 1;
+    setShowPrefs(!showPrefs);
+    Animated.spring(prefsAnim, { toValue, useNativeDriver: false, tension: 80, friction: 12 }).start();
+  };
+ 
   const handleUpdateSlot = useCallback((id: string, updates: Partial<ScheduleSlot>) => {
-    setSlots(prev => prev.map(slot => slot.id === id ? { ...slot, ...updates } : slot));
+    setSlots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
     setHasChanges(true);
   }, []);
-
-  const handleAddSlot = useCallback((newSlot: Partial<ScheduleSlot>) => {
+ 
+  const handleAddSlot = useCallback((updates: any) => {
     const slot: ScheduleSlot = {
       id: `slot-${Date.now()}`,
-      label: newSlot.label || 'New Activity',
-      icon: newSlot.icon || 'time',
-      start_time: newSlot.start_time || '09:00',
-      end_time: newSlot.end_time || '10:00',
+      label: updates.label || 'New Activity',
+      icon: updates.icon || 'time',
+      start_time: '09:00',
+      end_time: '10:00',
       group: 'general',
       order_index: slots.length,
-      days: newSlot.days || selectedDayFilter,
-      notes: newSlot.notes,
+      days: selectedDayFilter,
+      notes: updates.notes,
     };
     setSlots(prev => [...prev, slot]);
     setHasChanges(true);
   }, [slots.length, selectedDayFilter]);
-
+ 
   const handleDeleteSlot = useCallback((id: string) => {
     setSlots(prev => prev.filter(s => s.id !== id));
     setHasChanges(true);
     setDeleteSlot(null);
   }, []);
-
+ 
+  // Auto-cascade on drag
   const handleDragEnd = useCallback(({ data }: { data: ScheduleSlot[] }) => {
-    setSlots(data.map((slot, i) => ({ ...slot, order_index: i })));
+    // Reorder with cascade: reassign times based on drag order
+    let reordered = data.map((slot, i) => ({ ...slot, order_index: i }));
+ 
+    if (cascadeMode === 'shift-up') {
+      // Shift up: fill gap left by dragged item, push items up
+      let prevEnd: string | null = null;
+      reordered = reordered.map(slot => {
+        if (!prevEnd) { prevEnd = slot.end_time; return slot; }
+        // Calculate duration
+        const [sH, sM] = slot.start_time.split(':').map(Number);
+        const [eH, eM] = slot.end_time.split(':').map(Number);
+        const dur = (eH * 60 + eM) - (sH * 60 + sM);
+        // New start = prev end
+        const [pH, pM] = prevEnd.split(':').map(Number);
+        const newStartMins = pH * 60 + pM;
+        const newEndMins = newStartMins + Math.abs(dur);
+        const newStart = `${Math.floor(newStartMins / 60).toString().padStart(2,'0')}:${(newStartMins % 60).toString().padStart(2,'0')}`;
+        const newEnd = `${Math.floor(newEndMins / 60).toString().padStart(2,'0')}:${(newEndMins % 60).toString().padStart(2,'0')}`;
+        prevEnd = newEnd;
+        return { ...slot, start_time: newStart, end_time: newEnd };
+      });
+    } else {
+      // Shift down: push items below down
+      let prevEnd: string | null = null;
+      reordered = reordered.map(slot => {
+        if (!prevEnd) { prevEnd = slot.end_time; return slot; }
+        const [sH, sM] = slot.start_time.split(':').map(Number);
+        const [eH, eM] = slot.end_time.split(':').map(Number);
+        const dur = Math.abs((eH * 60 + eM) - (sH * 60 + sM));
+        const [pH, pM] = prevEnd.split(':').map(Number);
+        const prevEndMins = pH * 60 + pM;
+        const slotStartMins = sH * 60 + sM;
+        // Only shift if overlapping
+        if (slotStartMins < prevEndMins) {
+          const newStartMins = prevEndMins;
+          const newEndMins = newStartMins + dur;
+          const newStart = `${Math.floor(newStartMins/60).toString().padStart(2,'0')}:${(newStartMins%60).toString().padStart(2,'0')}`;
+          const newEnd = `${Math.floor(newEndMins/60).toString().padStart(2,'0')}:${(newEndMins%60).toString().padStart(2,'0')}`;
+          prevEnd = newEnd;
+          return { ...slot, start_time: newStart, end_time: newEnd };
+        }
+        prevEnd = slot.end_time;
+        return slot;
+      });
+    }
+ 
+    setSlots(reordered);
     setHasChanges(true);
-  }, []);
-
+  }, [cascadeMode]);
+ 
+  // Day change — check for existing tasks and warn
   const handleDayFilterChange = useCallback((days: string[], key: string) => {
-    setSelectedDayFilter(days);
-    setHasChanges(true);
-  }, []);
-
+    const hasExistingTasks = slots.some(s => s.days?.some(d => days.includes(d)));
+    if (hasExistingTasks) {
+      setPendingDayChange({ days, key });
+      setShowOverwriteConfirm(true);
+    } else {
+      setSelectedDayFilter(days);
+      setHasChanges(true);
+    }
+  }, [slots]);
+ 
+  const confirmDayChange = () => {
+    if (pendingDayChange) {
+      setSelectedDayFilter(pendingDayChange.days);
+      setHasChanges(true);
+      setPendingDayChange(null);
+    }
+    setShowOverwriteConfirm(false);
+  };
+ 
   const handleSave = async () => {
     setSaving(true);
     Keyboard.dismiss();
@@ -559,28 +459,20 @@ export default function SettingsScreen() {
         body: JSON.stringify({ slots }),
       });
       if (res.ok) setHasChanges(false);
-    } catch (error) {
-      console.error('Save error:', error);
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) { console.error(e); } finally { setSaving(false); }
   };
-
+ 
   const handleReset = async () => {
     setShowResetConfirm(false);
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/schedule-slots/reset`, { method: 'POST' });
       const data = await res.json();
-      setSlots(data.map((s: ScheduleSlot) => ({ ...s, days: s.days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] })));
+      setSlots(data.map((s: ScheduleSlot) => ({ ...s, days: s.days || ['mon','tue','wed','thu','fri','sat','sun'] })));
       setHasChanges(false);
-    } catch (error) {
-      console.error('Reset error:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
-
+ 
   const renderItem = useCallback(({ item, drag, isActive }: RenderItemParams<ScheduleSlot>) => (
     <ScaleDecorator>
       <SlotEditor
@@ -595,78 +487,95 @@ export default function SettingsScreen() {
       />
     </ScaleDecorator>
   ), [isDark, colors]);
-
+ 
+  const prefsHeight = prefsAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 260],
+  });
+ 
   return (
-    <View style={styles.container}>
+    <View style={S.container}>
       <LinearGradient colors={colors.bgGradient as any} style={StyleSheet.absoluteFillObject} />
-      
-      <View style={[styles.safeArea, { paddingTop: insets.top }]}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Settings</Text>
+      <View style={[S.safeArea, { paddingTop: insets.top }]}>
+ 
+        {/* ── Header ── */}
+        <View style={S.header}>
+          <Text style={[S.title, { color: colors.textPrimary }]}>Settings</Text>
+          {/* Preferences toggle button */}
+          <TouchableOpacity
+            style={[S.prefsBtn, {
+              backgroundColor: showPrefs ? colors.accentGlow : (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)'),
+            }]}
+            onPress={togglePrefs}
+          >
+            <Ionicons
+              name="options-outline"
+              size={20}
+              color={showPrefs ? colors.accent : colors.textSecondary}
+            />
+          </TouchableOpacity>
         </View>
-
-        {/* FIXED Panels */}
-        <View style={styles.fixedPanels}>
-          {/* Appearance */}
-          <View style={[styles.themeCard, { backgroundColor: colors.card, height: APPEARANCE_PANEL_HEIGHT }, getCardShadow(isDark)]}>
-            <View style={styles.themeContent}>
-              <Ionicons name={isDark ? 'moon' : 'sunny'} size={18} color={colors.accent} />
-              <Text style={[styles.themeLabel, { color: colors.textPrimary }]}>{isDark ? 'Dark Mode' : 'Light Mode'}</Text>
-            </View>
-            <NeumorphicSwitch value={!isDark} onValueChange={() => toggleTheme()} isDark={isDark} colors={colors} />
+ 
+        {/* ── Collapsible Preferences Panel ── */}
+        <Animated.View style={[S.prefsWrapper, { height: prefsHeight, overflow: 'hidden' }]}>
+          <View style={{ paddingHorizontal: SPACING.lg }}>
+            <PreferencesPanel isDark={isDark} colors={colors} />
           </View>
-
-          {/* Week Start Setting */}
-          <View style={[styles.themeCard, { backgroundColor: colors.card, height: APPEARANCE_PANEL_HEIGHT }, getCardShadow(isDark)]}>
-            <View style={styles.themeContent}>
-              <Ionicons name="calendar-outline" size={18} color={colors.accent} />
-              <Text style={[styles.themeLabel, { color: colors.textPrimary }]}>Week starts {weekStartsOnMonday ? 'Mon' : 'Sun'}</Text>
-            </View>
-            <NeumorphicSwitch value={weekStartsOnMonday} onValueChange={() => setWeekStartsOnMonday(!weekStartsOnMonday)} isDark={isDark} colors={colors} />
-          </View>
-
-          {/* Day selector */}
-          <DayWheelSelector selectedDays={selectedDayFilter} onSelectDays={handleDayFilterChange} isDark={isDark} colors={colors} />
+        </Animated.View>
+ 
+        {/* ── Fixed panels ── */}
+        <View style={S.fixedPanels}>
+          <DayWheelSelector
+            selectedDays={selectedDayFilter}
+            onSelectDays={handleDayFilterChange}
+            isDark={isDark}
+            colors={colors}
+          />
         </View>
-
-        {/* Activities */}
-        <View style={styles.activitiesSection}>
-          <View style={styles.activitiesHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
-            <Text style={[styles.sectionHint, { color: colors.textInactive }]}>Hold to drag</Text>
+ 
+        {/* ── Activities ── */}
+        <View style={S.activitiesSection}>
+          <View style={S.activitiesHeader}>
+            <Text style={[S.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
+            <Text style={[S.sectionHint, { color: colors.textInactive }]}>Hold to drag</Text>
           </View>
-
+ 
           {loading ? (
-            <View style={styles.loadingContainer}>
+            <View style={S.loadingContainer}>
               <ActivityIndicator size="large" color={colors.accent} />
             </View>
           ) : (
             <DraggableFlatList
               data={slots}
-              keyExtractor={(item) => item.id}
+              keyExtractor={item => item.id}
               onDragEnd={handleDragEnd}
               renderItem={renderItem}
-              contentContainerStyle={styles.listContent}
+              contentContainerStyle={S.listContent}
               showsVerticalScrollIndicator={false}
-              activationDistance={10}
+              activationDistance={1}
             />
           )}
         </View>
-
-        {/* Bottom Actions - 3 buttons: Reset | + | Save */}
-        <View style={[styles.bottomActions, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.surface }]} onPress={() => setShowResetConfirm(true)}>
-            <Ionicons name="refresh" size={16} color={colors.textSecondary} />
-            <Text style={[styles.actionBtnText, { color: colors.textSecondary }]}>Reset</Text>
+ 
+        {/* ── Bottom actions ── */}
+        <View style={[S.bottomActions, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
+          <TouchableOpacity
+            style={[S.actionBtn, { backgroundColor: colors.surface }]}
+            onPress={() => setShowResetConfirm(true)}
+          >
+            <Ionicons name="refresh" size={15} color={colors.textSecondary} />
+            <Text style={[S.actionBtnText, { color: colors.textSecondary }]}>Reset</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity style={[styles.addBtn, { backgroundColor: colors.surface }]} onPress={() => setShowAddModal(true)}>
+ 
+          <TouchableOpacity
+            style={[S.addBtn, { backgroundColor: colors.surface }]}
+            onPress={() => setShowAddModal(true)}
+          >
             <Ionicons name="add" size={22} color={colors.accent} />
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.actionBtn, { backgroundColor: hasChanges ? colors.accent : colors.surface }]} 
+ 
+          <TouchableOpacity
+            style={[S.actionBtn, { backgroundColor: hasChanges ? colors.accent : colors.surface }]}
             onPress={handleSave}
             disabled={!hasChanges || saving}
           >
@@ -674,26 +583,26 @@ export default function SettingsScreen() {
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <>
-                <Ionicons name="checkmark" size={16} color={hasChanges ? '#fff' : colors.textInactive} />
-                <Text style={[styles.actionBtnText, { color: hasChanges ? '#fff' : colors.textInactive }]}>Save</Text>
+                <Ionicons name="checkmark" size={15} color={hasChanges ? '#fff' : colors.textInactive} />
+                <Text style={[S.actionBtnText, { color: hasChanges ? '#fff' : colors.textInactive }]}>Save</Text>
               </>
             )}
           </TouchableOpacity>
         </View>
       </View>
-
-      {/* Modals */}
+ 
+      {/* ── Modals ── */}
       <TaskEditPanel
         visible={!!editSlot}
         onClose={() => setEditSlot(null)}
-        onSave={(updates) => { if (editSlot) handleUpdateSlot(editSlot.id, updates); }}
+        onSave={updates => { if (editSlot) handleUpdateSlot(editSlot.id, updates); }}
         initialLabel={editSlot?.label || ''}
         initialIcon={editSlot?.icon || 'time'}
         initialNotes={editSlot?.notes || ''}
         isDark={isDark}
         colors={colors}
       />
-
+ 
       <TimeEditModal
         visible={!!timeEditorSlot}
         onClose={() => setTimeEditorSlot(null)}
@@ -704,18 +613,18 @@ export default function SettingsScreen() {
         isDark={isDark}
         colors={colors}
       />
-
+ 
       <TaskEditPanel
         visible={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onSave={(updates) => handleAddSlot(updates.label, updates.icon, updates.notes)}
+        onSave={updates => handleAddSlot(updates)}
         initialLabel=""
         initialIcon="time"
         initialNotes=""
         isDark={isDark}
         colors={colors}
       />
-
+ 
       <ConfirmModal
         visible={!!deleteSlot}
         onClose={() => setDeleteSlot(null)}
@@ -727,7 +636,7 @@ export default function SettingsScreen() {
         isDark={isDark}
         colors={colors}
       />
-
+ 
       <ConfirmModal
         visible={showResetConfirm}
         onClose={() => setShowResetConfirm(false)}
@@ -739,83 +648,79 @@ export default function SettingsScreen() {
         isDark={isDark}
         colors={colors}
       />
+ 
+      {/* Day overwrite warning */}
+      <ConfirmModal
+        visible={showOverwriteConfirm}
+        onClose={() => { setShowOverwriteConfirm(false); setPendingDayChange(null); }}
+        onConfirm={confirmDayChange}
+        title="Existing Tasks"
+        message={`Some activities are already scheduled for ${pendingDayChange ? DAY_OPTIONS.find(o => o.key === pendingDayChange.key)?.label : 'these days'}. You can keep or overwrite them.`}
+        confirmText="Overwrite"
+        cancelText="Keep"
+        isDanger={false}
+        isDark={isDark}
+        colors={colors}
+      />
     </View>
   );
 }
-
-// =============================================================================
-// STYLES
-// =============================================================================
-const styles = StyleSheet.create({
+ 
+const S = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
-  header: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
   title: { fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
-  
-  fixedPanels: { paddingHorizontal: SPACING.lg, marginBottom: SPACING.section },
-  
-  themeCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: CARD_PADDING.horizontal, borderRadius: 12, marginBottom: SPACING.sm },
-  themeContent: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  themeLabel: { fontSize: 14, fontWeight: '600' },
-  neumorphicSwitch: { width: 46, height: 22, borderRadius: 11, flexDirection: 'row', alignItems: 'center' },
+  prefsBtn: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+ 
+  // Preferences panel
+  prefsWrapper: { overflow: 'hidden' },
+  prefsPanel: { borderRadius: 14, padding: 14, marginBottom: SPACING.sm, borderWidth: 1 },
+  prefsPanelTitle: { fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginBottom: 12 },
+  prefRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  prefLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  prefLabel: { fontSize: 13, fontWeight: '500' },
+  cascadePill: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  cascadePillText: { fontSize: 12, fontWeight: '600' },
+  prefDivider: { height: 1, marginBottom: 10 },
+  resetDangerBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 8, paddingVertical: 10 },
+  resetDangerText: { fontSize: 13, fontWeight: '600', color: '#ef4444' },
+ 
+  // Switch
+  switch: { width: 46, height: 22, borderRadius: 11, flexDirection: 'row', alignItems: 'center' },
   switchThumb: { width: 18, height: 18, borderRadius: 9 },
-  
-  dayWheelContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: CARD_PADDING.horizontal },
-  dayWheelLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginRight: SPACING.md },
-  wheelWrapper: { height: DAY_WHEEL_ITEM_HEIGHT * 3, flex: 1, overflow: 'hidden', position: 'relative' },
-  wheelSelectionIndicator: { position: 'absolute', top: DAY_WHEEL_ITEM_HEIGHT, left: 0, right: 0, height: DAY_WHEEL_ITEM_HEIGHT, borderRadius: 6, zIndex: -1 },
-  dayWheelItem: { justifyContent: 'center', alignItems: 'center' },
-  dayWheelItemText: {},
-  
+ 
+  // Day wheel
+  fixedPanels: { paddingHorizontal: SPACING.lg, marginBottom: SPACING.sm },
+  dayCard: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: CARD_PADDING.horizontal, height: DAY_WHEEL_ITEM_HEIGHT * 3 },
+  dayLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginRight: SPACING.md },
+  dayWheelWrapper: { height: DAY_WHEEL_ITEM_HEIGHT * 3, flex: 1, overflow: 'hidden', position: 'relative' },
+  daySelIndicator: { position: 'absolute', top: DAY_WHEEL_ITEM_HEIGHT, left: 0, right: 0, height: DAY_WHEEL_ITEM_HEIGHT, borderRadius: 8, zIndex: -1 },
+  dayItem: { justifyContent: 'center', alignItems: 'center' },
+ 
+  // Activities
   activitiesSection: { flex: 1, paddingHorizontal: SPACING.lg },
   activitiesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
   sectionTitle: { fontSize: 13, fontWeight: '600' },
   sectionHint: { fontSize: 10 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { paddingBottom: SPACING.sm },
-  
+ 
+  // Slot item
   slotItem: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, padding: CARD_PADDING.vertical, marginBottom: SPACING.sm },
-  dragHandle: { padding: 6, marginRight: 4 },
-  iconSelector: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: SPACING.sm },
+  dragHandle: { padding: 6, marginRight: 2 },
+  slotIcon: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: SPACING.sm },
   slotContent: { flex: 1 },
   slotLabel: { fontSize: 13, fontWeight: '600', marginBottom: 2 },
-  timeRow2: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  timeText2: { fontSize: 11 },
-  durationText: { fontSize: 10, fontWeight: '500' },
-  timeButton: { padding: 6 },
-  deleteButton: { padding: 6, marginLeft: 2 },
-  
+  slotTimeRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  slotTime: { fontSize: 11 },
+  slotDur: { fontSize: 10, fontWeight: '500' },
+  slotAction: { padding: 6 },
+ 
+  // Bottom
   bottomActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, gap: SPACING.sm },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: SPACING.md, borderRadius: 10, gap: 6 },
   actionBtnText: { fontSize: 13, fontWeight: '600' },
   addBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
-  modalTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center', paddingVertical: SPACING.md },
-  modalDivider: { height: 1, marginHorizontal: SPACING.md },
-  
-  iconPickerModal: { width: SCREEN_WIDTH - 40, maxWidth: 320, borderRadius: 14 },
-  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: SPACING.sm, padding: SPACING.md },
-  iconOption: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  
-  editModal: { width: SCREEN_WIDTH - 40, maxWidth: 340, borderRadius: 14 },
-  editRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm },
-  editLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1, width: 50 },
-  editInput: { flex: 1, borderRadius: 8, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.sm, fontSize: 14 },
-  notesInput: { minHeight: 60, textAlignVertical: 'top' },
-  iconSelectButton: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  editButtons: { flexDirection: 'row', padding: SPACING.md, gap: SPACING.sm },
-  editButton: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, alignItems: 'center' },
-  editButtonText: { fontSize: 14, fontWeight: '600' },
-  
-  addModal: { width: SCREEN_WIDTH - 40, maxWidth: 340, borderRadius: 14, padding: SPACING.md },
-  addTopRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
-  iconSelectLarge: { width: 50, height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  nameInput: { flex: 1, borderRadius: 10, paddingHorizontal: SPACING.md, paddingVertical: SPACING.md, fontSize: 15 },
-  timeRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, paddingHorizontal: SPACING.md, paddingVertical: SPACING.md, marginBottom: SPACING.sm, gap: SPACING.sm },
-  timeText: { flex: 1, fontSize: 14 },
-  notesInputFull: { borderRadius: 10, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, fontSize: 14, minHeight: 50, textAlignVertical: 'top', marginBottom: SPACING.sm },
-  addButtons: { flexDirection: 'row', gap: SPACING.sm },
-  addButton: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, alignItems: 'center' },
-  addButtonText: { fontSize: 14, fontWeight: '600' },
 });
+ 
