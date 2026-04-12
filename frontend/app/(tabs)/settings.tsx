@@ -1,62 +1,54 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  ActivityIndicator, Modal, Pressable, Dimensions,
+  ActivityIndicator, Pressable, Dimensions,
   ScrollView, Animated, Keyboard, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
-import { useTheme, getCardShadow, SPACING, CARD_PADDING } from '../../context/ThemeContext';
+import { useTheme, getCardShadow, SPACING, RADIUS, FONT } from '../../context/ThemeContext';
 import { TimeEditModal } from '../../components/TimeEditModal';
 import { ConfirmModal } from '../../components/CustomModal';
 import { TaskEditPanel } from '../../components/TaskEditPanel';
  
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
- 
-const DAY_WHEEL_ITEM_HEIGHT = 32;
  
 interface ScheduleSlot {
-  id: string;
-  label: string;
-  icon: string;
-  start_time: string;
-  end_time: string;
-  group: string;
-  order_index: number;
-  days: string[];
-  notes?: string;
+  id: string; label: string; icon: string;
+  start_time: string; end_time: string;
+  group: string; order_index: number; days: string[]; notes?: string;
 }
  
 const DAY_OPTIONS = [
   { key: 'weekdays', label: 'Weekdays', days: ['mon','tue','wed','thu','fri'] },
   { key: 'weekends', label: 'Weekends', days: ['sat','sun'] },
-  { key: 'mon', label: 'Monday', days: ['mon'] },
-  { key: 'tue', label: 'Tuesday', days: ['tue'] },
+  { key: 'mon', label: 'Monday',    days: ['mon'] },
+  { key: 'tue', label: 'Tuesday',   days: ['tue'] },
   { key: 'wed', label: 'Wednesday', days: ['wed'] },
-  { key: 'thu', label: 'Thursday', days: ['thu'] },
-  { key: 'fri', label: 'Friday', days: ['fri'] },
-  { key: 'sat', label: 'Saturday', days: ['sat'] },
-  { key: 'sun', label: 'Sunday', days: ['sun'] },
+  { key: 'thu', label: 'Thursday',  days: ['thu'] },
+  { key: 'fri', label: 'Friday',    days: ['fri'] },
+  { key: 'sat', label: 'Saturday',  days: ['sat'] },
+  { key: 'sun', label: 'Sunday',    days: ['sun'] },
 ];
  
-const getIconName = (iconName: string): keyof typeof Ionicons.glyphMap => {
-  const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-    'restaurant':'restaurant-outline','sunny':'sunny-outline','briefcase':'briefcase-outline',
-    'cafe':'cafe-outline','trending-up':'trending-up-outline','book':'book-outline',
-    'fitness':'fitness-outline','fast-food':'fast-food-outline','analytics':'analytics-outline',
-    'code':'code-outline','moon':'moon-outline','bed':'bed-outline','time':'time-outline',
-    'heart':'heart-outline','musical-notes':'musical-notes-outline',
-    'game-controller':'game-controller-outline','car':'car-outline','home':'home-outline',
-    'pencil':'pencil-outline','school':'school-outline','walk':'walk-outline',
-    'water':'water-outline','leaf':'leaf-outline','medkit':'medkit-outline',
-  };
-  return iconMap[iconName] || 'ellipse-outline';
-};
+const DAY_ITEM_H = 32;
  
-const calcDuration = (start: string, end: string): string => {
+const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
+  'restaurant':'restaurant-outline','sunny':'sunny-outline','briefcase':'briefcase-outline',
+  'cafe':'cafe-outline','trending-up':'trending-up-outline','book':'book-outline',
+  'fitness':'fitness-outline','fast-food':'fast-food-outline','analytics':'analytics-outline',
+  'code':'code-outline','moon':'moon-outline','bed':'bed-outline','time':'time-outline',
+  'heart':'heart-outline','musical-notes':'musical-notes-outline',
+  'game-controller':'game-controller-outline','car':'car-outline','home':'home-outline',
+  'pencil':'pencil-outline','school':'school-outline','walk':'walk-outline',
+  'water':'water-outline','leaf':'leaf-outline','medkit':'medkit-outline',
+};
+const getIcon = (name: string): keyof typeof Ionicons.glyphMap =>
+  iconMap[name] || iconMap[name + '-outline'] || 'ellipse-outline';
+ 
+const calcDuration = (start: string, end: string) => {
   const [sH, sM] = start.split(':').map(Number);
   const [eH, eM] = end.split(':').map(Number);
   let diff = (eH * 60 + eM) - (sH * 60 + sM);
@@ -67,52 +59,52 @@ const calcDuration = (start: string, end: string): string => {
   return `${m}m`;
 };
  
-// =============================================================================
-// NEUMORPHIC SWITCH
-// =============================================================================
-const NeumorphicSwitch = ({ value, onValueChange, colors }: {
+// ─────────────────────────────────────────────────────────────────────────────
+// SWITCH
+// ─────────────────────────────────────────────────────────────────────────────
+const Switch = ({ value, onValueChange, colors }: {
   value: boolean; onValueChange: (v: boolean) => void; colors: any;
 }) => (
   <Pressable
-    style={[S.switch, { backgroundColor: value ? colors.accent : colors.surface }]}
     onPress={() => onValueChange(!value)}
+    style={[S.switch, { backgroundColor: value ? colors.accent : colors.bgBase }]}
   >
-    <View style={[S.switchThumb, { backgroundColor: colors.card, marginLeft: value ? 24 : 2 }]} />
+    <View style={[S.switchThumb, {
+      backgroundColor: '#fff',
+      marginLeft: value ? 24 : 2,
+    }]} />
   </Pressable>
 );
  
-// =============================================================================
-// DAY WHEEL — fixed snap + orange selection (same pattern as TimeEditModal)
-// =============================================================================
-const DayWheelSelector = ({ selectedDays, onSelectDays, isDark, colors }: {
-  selectedDays: string[];
-  onSelectDays: (days: string[], key: string) => void;
+// ─────────────────────────────────────────────────────────────────────────────
+// DAY WHEEL
+// ─────────────────────────────────────────────────────────────────────────────
+const DayWheel = ({ selectedDays, onSelectDays, isDark, colors }: {
+  selectedDays: string[]; onSelectDays: (days: string[], key: string) => void;
   isDark: boolean; colors: any;
 }) => {
   const scrollRef = useRef<ScrollView>(null);
   const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initIdx = DAY_OPTIONS.findIndex(o =>
-    o.days.length === selectedDays.length && o.days.every(d => selectedDays.includes(d))
-  );
+    o.days.length === selectedDays.length && o.days.every(d => selectedDays.includes(d)));
   const [displayIdx, setDisplayIdx] = useState(initIdx >= 0 ? initIdx : 0);
  
   useEffect(() => {
     setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: displayIdx * DAY_WHEEL_ITEM_HEIGHT, animated: false });
+      scrollRef.current?.scrollTo({ y: displayIdx * DAY_ITEM_H, animated: false });
     }, 80);
   }, []);
  
   const doSnap = useCallback((y: number) => {
-    const idx = Math.max(0, Math.min(Math.round(y / DAY_WHEEL_ITEM_HEIGHT), DAY_OPTIONS.length - 1));
-    scrollRef.current?.scrollTo({ y: idx * DAY_WHEEL_ITEM_HEIGHT, animated: false });
+    const idx = Math.max(0, Math.min(Math.round(y / DAY_ITEM_H), DAY_OPTIONS.length - 1));
+    scrollRef.current?.scrollTo({ y: idx * DAY_ITEM_H, animated: false });
     setDisplayIdx(idx);
     onSelectDays(DAY_OPTIONS[idx].days, DAY_OPTIONS[idx].key);
   }, [onSelectDays]);
  
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
-    const idx = Math.max(0, Math.min(Math.round(y / DAY_WHEEL_ITEM_HEIGHT), DAY_OPTIONS.length - 1));
-    setDisplayIdx(idx);
+    setDisplayIdx(Math.max(0, Math.min(Math.round(y / DAY_ITEM_H), DAY_OPTIONS.length - 1)));
     if (snapTimer.current) clearTimeout(snapTimer.current);
     snapTimer.current = setTimeout(() => doSnap(y), 80);
   }, [doSnap]);
@@ -123,34 +115,34 @@ const DayWheelSelector = ({ selectedDays, onSelectDays, isDark, colors }: {
   }, [doSnap]);
  
   return (
-    <View style={[S.dayCard, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
-      <Text style={[S.dayLabel, { color: colors.textInactive }]}>DAY</Text>
-      <View style={S.dayWheelWrapper}>
-        <View style={[S.daySelIndicator, {
-          backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)',
+    <View style={[S.dayCard, { backgroundColor: colors.bgBase }, getCardShadow(isDark)]}>
+      <Text style={[S.dayCardLabel, { color: colors.textDim }]}>DAY</Text>
+      <View style={S.dayWheelWrap}>
+        <View style={[S.daySelHighlight, {
+          backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
         }]} />
         <ScrollView
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
-          snapToInterval={DAY_WHEEL_ITEM_HEIGHT}
+          snapToInterval={DAY_ITEM_H}
           decelerationRate={0.9}
           scrollEventThrottle={16}
-          disableIntervalMomentum={true}
+          disableIntervalMomentum
           onScroll={handleScroll}
           onMomentumScrollEnd={handleScrollEnd}
           onScrollEndDrag={handleScrollEnd}
-          contentContainerStyle={{ paddingVertical: DAY_WHEEL_ITEM_HEIGHT }}
+          contentContainerStyle={{ paddingVertical: DAY_ITEM_H }}
         >
-          {DAY_OPTIONS.map((opt, index) => {
-            const isSel = index === displayIdx;
-            const dist = Math.abs(index - displayIdx);
+          {DAY_OPTIONS.map((opt, i) => {
+            const sel = i === displayIdx;
+            const dist = Math.abs(i - displayIdx);
             return (
-              <View key={opt.key} style={[S.dayItem, { height: DAY_WHEEL_ITEM_HEIGHT }]}>
+              <View key={opt.key} style={[S.dayItem, { height: DAY_ITEM_H }]}>
                 <Text style={{
-                  color: isSel ? colors.accent : colors.textSecondary,
-                  fontWeight: isSel ? '700' : '500',
-                  opacity: dist === 0 ? 1 : dist === 1 ? 0.5 : 0.25,
-                  fontSize: isSel ? 14 : 12,
+                  color: sel ? colors.accent : colors.textSecondary,
+                  fontWeight: sel ? '700' : '500',
+                  opacity: dist === 0 ? 1 : dist === 1 ? 0.45 : 0.2,
+                  fontSize: sel ? 14 : 12,
                 }}>
                   {opt.label}
                 </Text>
@@ -163,99 +155,74 @@ const DayWheelSelector = ({ selectedDays, onSelectDays, isDark, colors }: {
   );
 };
  
-// =============================================================================
-// PREFERENCES PANEL (collapsible)
-// =============================================================================
-const PreferencesPanel = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// PREFERENCES PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+const PrefsPanel = ({ isDark, colors }: { isDark: boolean; colors: any }) => {
   const {
     toggleTheme, weekStartsOnMonday, setWeekStartsOnMonday,
     ignoreOverlaps, setIgnoreOverlaps, cascadeMode, setCascadeMode,
   } = useTheme();
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showReset, setShowReset] = useState(false);
+  const [localOverlaps, setLocalOverlaps] = useState(ignoreOverlaps);
+  const [localCascade, setLocalCascade] = useState(cascadeMode);
  
-  // Local state mirrors for immediate UI response
-  const [localIgnoreOverlaps, setLocalIgnoreOverlaps] = useState(ignoreOverlaps);
-  const [localCascadeMode, setLocalCascadeMode] = useState(cascadeMode);
- 
-  const handleIgnoreOverlaps = (val: boolean) => {
-    setLocalIgnoreOverlaps(val);
-    setIgnoreOverlaps(val);
-  };
- 
-  const handleCascadeMode = () => {
-    const next = localCascadeMode === 'shift-up' ? 'shift-down' : 'shift-up';
-    setLocalCascadeMode(next);
-    setCascadeMode(next);
-  };
+  const prefRow = (icon: keyof typeof Ionicons.glyphMap, label: string, control: React.ReactNode) => (
+    <View style={S.prefRow}>
+      <View style={S.prefLeft}>
+        <Ionicons name={icon} size={15} color={colors.accent} />
+        <Text style={[S.prefLabel, { color: colors.textBody }]}>{label}</Text>
+      </View>
+      {control}
+    </View>
+  );
  
   return (
     <View style={[S.prefsPanel, {
-      backgroundColor: colors.surface,
-      borderColor: isDark ? 'rgba(255,106,46,0.18)' : 'rgba(255,106,46,0.12)',
+      backgroundColor: colors.bgSurface || colors.bgBase,
+      borderColor: `${colors.accent}20`,
     }]}>
-      <Text style={[S.prefsPanelTitle, { color: colors.textInactive }]}>PREFERENCES</Text>
+      <Text style={[S.prefsPanelTitle, { color: colors.textDim }]}>PREFERENCES</Text>
  
-      {/* Dark Mode */}
-      <View style={S.prefRow}>
-        <View style={S.prefLeft}>
-          <Ionicons name={isDark ? 'moon-outline' : 'sunny-outline'} size={16} color={colors.accent} />
-          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Dark Mode</Text>
-        </View>
-        <NeumorphicSwitch value={isDark} onValueChange={() => toggleTheme()} colors={colors} />
-      </View>
+      {prefRow(isDark ? 'moon-outline' : 'sunny-outline', 'Dark Mode',
+        <Switch value={isDark} onValueChange={toggleTheme} colors={colors} />)}
  
-      {/* Week starts Mon */}
-      <View style={S.prefRow}>
-        <View style={S.prefLeft}>
-          <Ionicons name="calendar-outline" size={16} color={colors.accent} />
-          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Week starts Mon</Text>
-        </View>
-        <NeumorphicSwitch value={weekStartsOnMonday} onValueChange={setWeekStartsOnMonday} colors={colors} />
-      </View>
+      {prefRow('calendar-outline', 'Week starts Monday',
+        <Switch value={weekStartsOnMonday} onValueChange={setWeekStartsOnMonday} colors={colors} />)}
  
-      {/* Ignore overlaps */}
-      <View style={S.prefRow}>
-        <View style={S.prefLeft}>
-          <Ionicons name="git-merge-outline" size={16} color={colors.accent} />
-          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Ignore overlaps</Text>
-        </View>
-        <NeumorphicSwitch value={localIgnoreOverlaps} onValueChange={handleIgnoreOverlaps} colors={colors} />
-      </View>
+      {prefRow('git-merge-outline', 'Ignore overlaps',
+        <Switch value={localOverlaps} onValueChange={v => { setLocalOverlaps(v); setIgnoreOverlaps(v); }} colors={colors} />)}
  
-      {/* Cascade on drag */}
-      <View style={[S.prefRow, { marginBottom: 12 }]}>
-        <View style={S.prefLeft}>
-          <Ionicons name="swap-vertical-outline" size={16} color={colors.accent} />
-          <Text style={[S.prefLabel, { color: colors.textPrimary }]}>Cascade on drag</Text>
-        </View>
+      {prefRow('swap-vertical-outline', 'Cascade on drag',
         <TouchableOpacity
-          style={[S.cascadePill, { backgroundColor: colors.accentGlow }]}
-          onPress={handleCascadeMode}
+          style={[S.cascadePill, { backgroundColor: `${colors.accent}18` }]}
+          onPress={() => {
+            const next = localCascade === 'shift-up' ? 'shift-down' : 'shift-up';
+            setLocalCascade(next); setCascadeMode(next);
+          }}
         >
           <Text style={[S.cascadePillText, { color: colors.accent }]}>
-            {localCascadeMode === 'shift-up' ? 'Shift up ▾' : 'Shift down ▾'}
+            {localCascade === 'shift-up' ? 'Shift up ▾' : 'Shift down ▾'}
           </Text>
         </TouchableOpacity>
-      </View>
+      )}
  
-      {/* Divider */}
       <View style={[S.prefDivider, { backgroundColor: colors.divider }]} />
  
-      {/* Reset All Data */}
       <TouchableOpacity
-        style={[S.resetDangerBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]}
-        onPress={() => setShowResetConfirm(true)}
+        style={[S.dangerBtn, { backgroundColor: 'rgba(239,68,68,0.10)' }]}
+        onPress={() => setShowReset(true)}
       >
-        <Ionicons name="trash-outline" size={15} color="#ef4444" />
-        <Text style={S.resetDangerText}>Reset All Data</Text>
+        <Ionicons name="trash-outline" size={14} color="#ef4444" />
+        <Text style={S.dangerBtnText}>Reset All Data</Text>
       </TouchableOpacity>
  
       <ConfirmModal
-        visible={showResetConfirm}
-        onClose={() => setShowResetConfirm(false)}
-        onConfirm={() => { setShowResetConfirm(false); /* handled by parent */ }}
+        visible={showReset}
+        onClose={() => setShowReset(false)}
+        onConfirm={() => setShowReset(false)}
         title="Reset All Data"
-        message="This will permanently delete all your activities and reset all settings to defaults."
+        message="Permanently delete all activities and reset settings to defaults."
         confirmText="Reset"
         isDanger
         isDark={isDark}
@@ -265,69 +232,79 @@ const PreferencesPanel = ({ isDark, colors }: { isDark: boolean; colors: any }) 
   );
 };
  
-// =============================================================================
-// SLOT EDITOR — individual activity row
-// =============================================================================
-const SlotEditor = ({ slot, onEdit, onDelete, onOpenTimeEditor, onDrag, isActive, isDark, colors }: {
+// ─────────────────────────────────────────────────────────────────────────────
+// SLOT EDITOR ROW
+// ─────────────────────────────────────────────────────────────────────────────
+const SlotRow = ({ slot, onEdit, onDelete, onTime, onDrag, isActive, isDark, colors }: {
   slot: ScheduleSlot; onEdit: () => void; onDelete: () => void;
-  onOpenTimeEditor: () => void; onDrag: () => void;
+  onTime: () => void; onDrag: () => void;
   isActive: boolean; isDark: boolean; colors: any;
 }) => (
-  <View style={[S.slotItem, { backgroundColor: colors.card }, getCardShadow(isDark), isActive && { opacity: 0.9, transform: [{ scale: 1.02 }] }]}>
-    {/* Drag handle — long press */}
-    <TouchableOpacity style={S.dragHandle} onLongPress={onDrag} delayLongPress={200}>
-      <Ionicons name="menu" size={16} color={isActive ? colors.accent : colors.iconInactive} />
+  <View style={[S.slotRow, { backgroundColor: colors.bgBase }, getCardShadow(isDark),
+    isActive && { opacity: 0.9, transform: [{ scale: 1.02 }] }]}>
+ 
+    {/* Drag handle — fixed: activationDistance handled at list level */}
+    <TouchableOpacity style={S.dragHandle} onLongPress={onDrag} delayLongPress={150}>
+      <Ionicons name="menu" size={15} color={isActive ? colors.accent : colors.textDim} />
     </TouchableOpacity>
  
     {/* Icon */}
-    <TouchableOpacity style={[S.slotIcon, { backgroundColor: colors.surface }]} onPress={onEdit}>
-      <Ionicons name={getIconName(slot.icon)} size={16} color={colors.accent} />
+    <TouchableOpacity
+      style={[S.slotIcon, { backgroundColor: `${colors.accent}18` }]}
+      onPress={onEdit}
+    >
+      <Ionicons name={getIcon(slot.icon)} size={14} color={colors.accent} />
     </TouchableOpacity>
  
     {/* Label + time */}
     <TouchableOpacity style={S.slotContent} onPress={onEdit}>
-      <Text style={[S.slotLabel, { color: colors.textPrimary }]} numberOfLines={1}>{slot.label}</Text>
+      <Text style={[S.slotLabel, { color: colors.textBody }]} numberOfLines={1}>
+        {slot.label}
+      </Text>
       <View style={S.slotTimeRow}>
-        <Text style={[S.slotTime, { color: colors.textInactive }]}>{slot.start_time} — {slot.end_time}</Text>
-        <Text style={[S.slotDur, { color: colors.textInactive }]}>{calcDuration(slot.start_time, slot.end_time)}</Text>
+        <Text style={[S.slotTime, { color: colors.textDim }]}>
+          {slot.start_time} – {slot.end_time}
+        </Text>
+        <Text style={[S.slotDur, { color: colors.textDim }]}>
+          {calcDuration(slot.start_time, slot.end_time)}
+        </Text>
       </View>
     </TouchableOpacity>
  
     {/* Time edit */}
-    <TouchableOpacity style={S.slotAction} onPress={onOpenTimeEditor}>
-      <Ionicons name="time-outline" size={16} color={colors.textInactive} />
+    <TouchableOpacity style={S.slotAction} onPress={onTime}>
+      <Ionicons name="time-outline" size={15} color={colors.textDim} />
     </TouchableOpacity>
  
     {/* Delete */}
     <TouchableOpacity style={S.slotAction} onPress={onDelete}>
-      <Ionicons name="trash-outline" size={14} color={colors.textInactive} />
+      <Ionicons name="trash-outline" size={13} color={colors.textDim} />
     </TouchableOpacity>
   </View>
 );
  
-// =============================================================================
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN SETTINGS SCREEN
-// =============================================================================
+// ─────────────────────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const { isDark, colors, cascadeMode } = useTheme();
   const insets = useSafeAreaInsets();
+ 
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-  const [selectedDayFilter, setSelectedDayFilter] = useState(['mon','tue','wed','thu','fri']);
+  const [selectedDays, setSelectedDays] = useState(['mon','tue','wed','thu','fri']);
   const [showPrefs, setShowPrefs] = useState(false);
   const prefsAnim = useRef(new Animated.Value(0)).current;
  
   const [editSlot, setEditSlot] = useState<ScheduleSlot | null>(null);
-  const [timeEditorSlot, setTimeEditorSlot] = useState<ScheduleSlot | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [timeSlot, setTimeSlot] = useState<ScheduleSlot | null>(null);
+  const [addModal, setAddModal] = useState(false);
   const [deleteSlot, setDeleteSlot] = useState<ScheduleSlot | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
- 
-  // Overwrite confirmation
-  const [pendingDayChange, setPendingDayChange] = useState<{ days: string[]; key: string } | null>(null);
-  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
+  const [showReset, setShowReset] = useState(false);
+  const [pendingDay, setPendingDay] = useState<{ days: string[]; key: string } | null>(null);
+  const [showDayWarn, setShowDayWarn] = useState(false);
  
   const fetchSlots = useCallback(async () => {
     try {
@@ -342,12 +319,12 @@ export default function SettingsScreen() {
  
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
  
-  // Toggle preferences panel with animation
   const togglePrefs = () => {
-    const toValue = showPrefs ? 0 : 1;
+    const to = showPrefs ? 0 : 1;
     setShowPrefs(!showPrefs);
-    Animated.spring(prefsAnim, { toValue, useNativeDriver: false, tension: 80, friction: 12 }).start();
+    Animated.spring(prefsAnim, { toValue: to, useNativeDriver: false, tension: 80, friction: 12 }).start();
   };
+  const prefsHeight = prefsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 280] });
  
   const handleUpdateSlot = useCallback((id: string, updates: Partial<ScheduleSlot>) => {
     setSlots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
@@ -359,16 +336,13 @@ export default function SettingsScreen() {
       id: `slot-${Date.now()}`,
       label: updates.label || 'New Activity',
       icon: updates.icon || 'time',
-      start_time: '09:00',
-      end_time: '10:00',
-      group: 'general',
-      order_index: slots.length,
-      days: selectedDayFilter,
-      notes: updates.notes,
+      start_time: '09:00', end_time: '10:00',
+      group: 'general', order_index: slots.length,
+      days: selectedDays, notes: updates.notes,
     };
     setSlots(prev => [...prev, slot]);
     setHasChanges(true);
-  }, [slots.length, selectedDayFilter]);
+  }, [slots.length, selectedDays]);
  
   const handleDeleteSlot = useCallback((id: string) => {
     setSlots(prev => prev.filter(s => s.id !== id));
@@ -376,31 +350,10 @@ export default function SettingsScreen() {
     setDeleteSlot(null);
   }, []);
  
-  // Auto-cascade on drag
   const handleDragEnd = useCallback(({ data }: { data: ScheduleSlot[] }) => {
-    // Reorder with cascade: reassign times based on drag order
-    let reordered = data.map((slot, i) => ({ ...slot, order_index: i }));
+    let reordered = data.map((s, i) => ({ ...s, order_index: i }));
  
     if (cascadeMode === 'shift-up') {
-      // Shift up: fill gap left by dragged item, push items up
-      let prevEnd: string | null = null;
-      reordered = reordered.map(slot => {
-        if (!prevEnd) { prevEnd = slot.end_time; return slot; }
-        // Calculate duration
-        const [sH, sM] = slot.start_time.split(':').map(Number);
-        const [eH, eM] = slot.end_time.split(':').map(Number);
-        const dur = (eH * 60 + eM) - (sH * 60 + sM);
-        // New start = prev end
-        const [pH, pM] = prevEnd.split(':').map(Number);
-        const newStartMins = pH * 60 + pM;
-        const newEndMins = newStartMins + Math.abs(dur);
-        const newStart = `${Math.floor(newStartMins / 60).toString().padStart(2,'0')}:${(newStartMins % 60).toString().padStart(2,'0')}`;
-        const newEnd = `${Math.floor(newEndMins / 60).toString().padStart(2,'0')}:${(newEndMins % 60).toString().padStart(2,'0')}`;
-        prevEnd = newEnd;
-        return { ...slot, start_time: newStart, end_time: newEnd };
-      });
-    } else {
-      // Shift down: push items below down
       let prevEnd: string | null = null;
       reordered = reordered.map(slot => {
         if (!prevEnd) { prevEnd = slot.end_time; return slot; }
@@ -408,16 +361,27 @@ export default function SettingsScreen() {
         const [eH, eM] = slot.end_time.split(':').map(Number);
         const dur = Math.abs((eH * 60 + eM) - (sH * 60 + sM));
         const [pH, pM] = prevEnd.split(':').map(Number);
-        const prevEndMins = pH * 60 + pM;
-        const slotStartMins = sH * 60 + sM;
-        // Only shift if overlapping
-        if (slotStartMins < prevEndMins) {
-          const newStartMins = prevEndMins;
-          const newEndMins = newStartMins + dur;
-          const newStart = `${Math.floor(newStartMins/60).toString().padStart(2,'0')}:${(newStartMins%60).toString().padStart(2,'0')}`;
-          const newEnd = `${Math.floor(newEndMins/60).toString().padStart(2,'0')}:${(newEndMins%60).toString().padStart(2,'0')}`;
-          prevEnd = newEnd;
-          return { ...slot, start_time: newStart, end_time: newEnd };
+        const newS = pH * 60 + pM, newE = newS + dur;
+        prevEnd = `${Math.floor(newE / 60).toString().padStart(2,'0')}:${(newE % 60).toString().padStart(2,'0')}`;
+        return { ...slot,
+          start_time: `${Math.floor(newS / 60).toString().padStart(2,'0')}:${(newS % 60).toString().padStart(2,'0')}`,
+          end_time: prevEnd };
+      });
+    } else {
+      let prevEnd: string | null = null;
+      reordered = reordered.map(slot => {
+        if (!prevEnd) { prevEnd = slot.end_time; return slot; }
+        const [sH, sM] = slot.start_time.split(':').map(Number);
+        const [eH, eM] = slot.end_time.split(':').map(Number);
+        const dur = Math.abs((eH * 60 + eM) - (sH * 60 + sM));
+        const [pH, pM] = prevEnd.split(':').map(Number);
+        const prevMins = pH * 60 + pM, slotMins = sH * 60 + sM;
+        if (slotMins < prevMins) {
+          const newS = prevMins, newE = newS + dur;
+          prevEnd = `${Math.floor(newE / 60).toString().padStart(2,'0')}:${(newE % 60).toString().padStart(2,'0')}`;
+          return { ...slot,
+            start_time: `${Math.floor(newS / 60).toString().padStart(2,'0')}:${(newS % 60).toString().padStart(2,'0')}`,
+            end_time: prevEnd };
         }
         prevEnd = slot.end_time;
         return slot;
@@ -428,26 +392,11 @@ export default function SettingsScreen() {
     setHasChanges(true);
   }, [cascadeMode]);
  
-  // Day change — check for existing tasks and warn
-  const handleDayFilterChange = useCallback((days: string[], key: string) => {
-    const hasExistingTasks = slots.some(s => s.days?.some(d => days.includes(d)));
-    if (hasExistingTasks) {
-      setPendingDayChange({ days, key });
-      setShowOverwriteConfirm(true);
-    } else {
-      setSelectedDayFilter(days);
-      setHasChanges(true);
-    }
+  const handleDayChange = useCallback((days: string[], key: string) => {
+    const hasExisting = slots.some(s => s.days?.some(d => days.includes(d)));
+    if (hasExisting) { setPendingDay({ days, key }); setShowDayWarn(true); }
+    else { setSelectedDays(days); setHasChanges(true); }
   }, [slots]);
- 
-  const confirmDayChange = () => {
-    if (pendingDayChange) {
-      setSelectedDayFilter(pendingDayChange.days);
-      setHasChanges(true);
-      setPendingDayChange(null);
-    }
-    setShowOverwriteConfirm(false);
-  };
  
   const handleSave = async () => {
     setSaving(true);
@@ -463,8 +412,7 @@ export default function SettingsScreen() {
   };
  
   const handleReset = async () => {
-    setShowResetConfirm(false);
-    setLoading(true);
+    setShowReset(false); setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/schedule-slots/reset`, { method: 'POST' });
       const data = await res.json();
@@ -475,11 +423,11 @@ export default function SettingsScreen() {
  
   const renderItem = useCallback(({ item, drag, isActive }: RenderItemParams<ScheduleSlot>) => (
     <ScaleDecorator>
-      <SlotEditor
+      <SlotRow
         slot={item}
         onEdit={() => setEditSlot(item)}
         onDelete={() => setDeleteSlot(item)}
-        onOpenTimeEditor={() => setTimeEditorSlot(item)}
+        onTime={() => setTimeSlot(item)}
         onDrag={drag}
         isActive={isActive}
         isDark={isDark}
@@ -488,60 +436,50 @@ export default function SettingsScreen() {
     </ScaleDecorator>
   ), [isDark, colors]);
  
-  const prefsHeight = prefsAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 260],
-  });
- 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <View style={S.container}>
+    <View style={S.screen}>
       <LinearGradient colors={colors.bgGradient as any} style={StyleSheet.absoluteFillObject} />
-      <View style={[S.safeArea, { paddingTop: insets.top }]}>
+      <View style={[S.safe, { paddingTop: insets.top }]}>
  
-        {/* ── Header ── */}
+        {/* Header */}
         <View style={S.header}>
-          <Text style={[S.title, { color: colors.textPrimary }]}>Settings</Text>
-          {/* Preferences toggle button */}
+          <Text style={[S.title, { color: colors.textPrimary }]}>Schedule</Text>
           <TouchableOpacity
-            style={[S.prefsBtn, {
-              backgroundColor: showPrefs ? colors.accentGlow : (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)'),
-            }]}
+            style={[S.prefsBtn, { backgroundColor: showPrefs ? `${colors.accent}18` : colors.bgBase }]}
             onPress={togglePrefs}
           >
-            <Ionicons
-              name="options-outline"
-              size={20}
-              color={showPrefs ? colors.accent : colors.textSecondary}
-            />
+            <Ionicons name="options-outline" size={19}
+              color={showPrefs ? colors.accent : colors.textDim} />
           </TouchableOpacity>
         </View>
  
-        {/* ── Collapsible Preferences Panel ── */}
-        <Animated.View style={[S.prefsWrapper, { height: prefsHeight, overflow: 'hidden' }]}>
+        {/* Collapsible prefs */}
+        <Animated.View style={[S.prefsWrap, { height: prefsHeight, overflow: 'hidden' }]}>
           <View style={{ paddingHorizontal: SPACING.lg }}>
-            <PreferencesPanel isDark={isDark} colors={colors} />
+            <PrefsPanel isDark={isDark} colors={colors} />
           </View>
         </Animated.View>
  
-        {/* ── Fixed panels ── */}
+        {/* Day wheel */}
         <View style={S.fixedPanels}>
-          <DayWheelSelector
-            selectedDays={selectedDayFilter}
-            onSelectDays={handleDayFilterChange}
+          <DayWheel
+            selectedDays={selectedDays}
+            onSelectDays={handleDayChange}
             isDark={isDark}
             colors={colors}
           />
         </View>
  
-        {/* ── Activities ── */}
+        {/* Activities list */}
         <View style={S.activitiesSection}>
           <View style={S.activitiesHeader}>
-            <Text style={[S.sectionTitle, { color: colors.textPrimary }]}>Activities</Text>
-            <Text style={[S.sectionHint, { color: colors.textInactive }]}>Hold to drag</Text>
+            <Text style={[S.sectionTitle, { color: colors.textBody }]}>Activities</Text>
+            <Text style={[S.sectionHint, { color: colors.textDim }]}>Hold to drag</Text>
           </View>
  
           {loading ? (
-            <View style={S.loadingContainer}>
+            <View style={S.loadingWrap}>
               <ActivityIndicator size="large" color={colors.accent} />
             </View>
           ) : (
@@ -552,164 +490,132 @@ export default function SettingsScreen() {
               renderItem={renderItem}
               contentContainerStyle={S.listContent}
               showsVerticalScrollIndicator={false}
-              activationDistance={1}
+              activationDistance={1}  // ← FIX: resolves double-press workaround
             />
           )}
         </View>
  
-        {/* ── Bottom actions ── */}
-        <View style={[S.bottomActions, { backgroundColor: colors.card }, getCardShadow(isDark)]}>
+        {/* Bottom actions */}
+        <View style={[S.bottomBar, { backgroundColor: colors.bgBase }, getCardShadow(isDark)]}>
           <TouchableOpacity
-            style={[S.actionBtn, { backgroundColor: colors.surface }]}
-            onPress={() => setShowResetConfirm(true)}
+            style={[S.actionBtn, { backgroundColor: colors.bgBase, borderWidth: 0.5, borderColor: colors.dividerStrong }]}
+            onPress={() => setShowReset(true)}
           >
-            <Ionicons name="refresh" size={15} color={colors.textSecondary} />
-            <Text style={[S.actionBtnText, { color: colors.textSecondary }]}>Reset</Text>
+            <Ionicons name="refresh" size={14} color={colors.textMuted} />
+            <Text style={[S.actionBtnText, { color: colors.textMuted }]}>Reset</Text>
           </TouchableOpacity>
  
           <TouchableOpacity
-            style={[S.addBtn, { backgroundColor: colors.surface }]}
-            onPress={() => setShowAddModal(true)}
+            style={[S.addBtn, { backgroundColor: `${colors.accent}18`, borderWidth: 1, borderColor: `${colors.accent}30` }]}
+            onPress={() => setAddModal(true)}
           >
             <Ionicons name="add" size={22} color={colors.accent} />
           </TouchableOpacity>
  
           <TouchableOpacity
-            style={[S.actionBtn, { backgroundColor: hasChanges ? colors.accent : colors.surface }]}
+            style={[S.actionBtn, { backgroundColor: hasChanges ? colors.accent : colors.bgBase,
+              borderWidth: 0.5, borderColor: hasChanges ? colors.accent : colors.dividerStrong }]}
             onPress={handleSave}
             disabled={!hasChanges || saving}
           >
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
+            {saving ? <ActivityIndicator size="small" color="#fff" /> : (
               <>
-                <Ionicons name="checkmark" size={15} color={hasChanges ? '#fff' : colors.textInactive} />
-                <Text style={[S.actionBtnText, { color: hasChanges ? '#fff' : colors.textInactive }]}>Save</Text>
+                <Ionicons name="checkmark" size={14} color={hasChanges ? '#fff' : colors.textDim} />
+                <Text style={[S.actionBtnText, { color: hasChanges ? '#fff' : colors.textDim }]}>Save</Text>
               </>
             )}
           </TouchableOpacity>
         </View>
       </View>
  
-      {/* ── Modals ── */}
-      <TaskEditPanel
-        visible={!!editSlot}
-        onClose={() => setEditSlot(null)}
-        onSave={updates => { if (editSlot) handleUpdateSlot(editSlot.id, updates); }}
-        initialLabel={editSlot?.label || ''}
-        initialIcon={editSlot?.icon || 'time'}
-        initialNotes={editSlot?.notes || ''}
-        isDark={isDark}
-        colors={colors}
-      />
+      {/* Modals */}
+      <TaskEditPanel visible={!!editSlot} onClose={() => setEditSlot(null)}
+        onSave={u => { if (editSlot) handleUpdateSlot(editSlot.id, u); }}
+        initialLabel={editSlot?.label || ''} initialIcon={editSlot?.icon || 'time'}
+        initialNotes={editSlot?.notes || ''} isDark={isDark} colors={colors} />
  
-      <TimeEditModal
-        visible={!!timeEditorSlot}
-        onClose={() => setTimeEditorSlot(null)}
-        onSave={(s, e) => { if (timeEditorSlot) handleUpdateSlot(timeEditorSlot.id, { start_time: s, end_time: e }); setTimeEditorSlot(null); }}
-        initialStartTime={timeEditorSlot?.start_time || '09:00'}
-        initialEndTime={timeEditorSlot?.end_time || '10:00'}
-        taskLabel={timeEditorSlot?.label}
-        isDark={isDark}
-        colors={colors}
-      />
+      <TimeEditModal visible={!!timeSlot} onClose={() => setTimeSlot(null)}
+        onSave={(s, e) => { if (timeSlot) { handleUpdateSlot(timeSlot.id, { start_time: s, end_time: e }); setTimeSlot(null); } }}
+        initialStartTime={timeSlot?.start_time || '09:00'} initialEndTime={timeSlot?.end_time || '10:00'}
+        taskLabel={timeSlot?.label} isDark={isDark} colors={colors} />
  
-      <TaskEditPanel
-        visible={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onSave={updates => handleAddSlot(updates)}
-        initialLabel=""
-        initialIcon="time"
-        initialNotes=""
-        isDark={isDark}
-        colors={colors}
-      />
+      <TaskEditPanel visible={addModal} onClose={() => setAddModal(false)}
+        onSave={handleAddSlot}
+        initialLabel="" initialIcon="time" initialNotes="" isDark={isDark} colors={colors} />
  
-      <ConfirmModal
-        visible={!!deleteSlot}
-        onClose={() => setDeleteSlot(null)}
+      <ConfirmModal visible={!!deleteSlot} onClose={() => setDeleteSlot(null)}
         onConfirm={() => deleteSlot && handleDeleteSlot(deleteSlot.id)}
-        title="Delete Activity"
-        message={`Are you sure you want to delete "${deleteSlot?.label}"?`}
-        confirmText="Delete"
-        isDanger
-        isDark={isDark}
-        colors={colors}
-      />
+        title="Delete Activity" message={`Delete "${deleteSlot?.label}"?`}
+        confirmText="Delete" isDanger isDark={isDark} colors={colors} />
  
-      <ConfirmModal
-        visible={showResetConfirm}
-        onClose={() => setShowResetConfirm(false)}
+      <ConfirmModal visible={showReset} onClose={() => setShowReset(false)}
         onConfirm={handleReset}
-        title="Reset Schedule"
-        message="This will restore the default schedule and remove all your customizations."
-        confirmText="Reset"
-        isDanger
-        isDark={isDark}
-        colors={colors}
-      />
+        title="Reset Schedule" message="Restore the default schedule and remove all customizations."
+        confirmText="Reset" isDanger isDark={isDark} colors={colors} />
  
-      {/* Day overwrite warning */}
-      <ConfirmModal
-        visible={showOverwriteConfirm}
-        onClose={() => { setShowOverwriteConfirm(false); setPendingDayChange(null); }}
-        onConfirm={confirmDayChange}
+      <ConfirmModal visible={showDayWarn}
+        onClose={() => { setShowDayWarn(false); setPendingDay(null); }}
+        onConfirm={() => {
+          if (pendingDay) { setSelectedDays(pendingDay.days); setHasChanges(true); setPendingDay(null); }
+          setShowDayWarn(false);
+        }}
         title="Existing Tasks"
-        message={`Some activities are already scheduled for ${pendingDayChange ? DAY_OPTIONS.find(o => o.key === pendingDayChange.key)?.label : 'these days'}. You can keep or overwrite them.`}
-        confirmText="Overwrite"
-        cancelText="Keep"
-        isDanger={false}
-        isDark={isDark}
-        colors={colors}
-      />
+        message={`Some activities already have tasks for ${pendingDay ? DAY_OPTIONS.find(o => o.key === pendingDay.key)?.label : 'these days'}. Overwrite?`}
+        confirmText="Overwrite" cancelText="Keep" isDanger={false} isDark={isDark} colors={colors} />
     </View>
   );
 }
  
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────────────────────
+
 const S = StyleSheet.create({
-  container: { flex: 1 },
-  safeArea: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
-  title: { fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
-  prefsBtn: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  screen: { flex: 1 },
+  safe: { flex: 1 },
  
-  // Preferences panel
-  prefsWrapper: { overflow: 'hidden' },
-  prefsPanel: { borderRadius: 14, padding: 14, marginBottom: SPACING.sm, borderWidth: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
+  title: { fontSize: FONT.xl, fontWeight: '700', letterSpacing: -0.5 },
+  prefsBtn: { width: 36, height: 36, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
+ 
+  prefsWrap: { overflow: 'hidden' },
+  prefsPanel: { borderRadius: RADIUS.lg, padding: SPACING.md, marginBottom: SPACING.sm, borderWidth: 1 },
   prefsPanelTitle: { fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginBottom: 12 },
   prefRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   prefLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   prefLabel: { fontSize: 13, fontWeight: '500' },
-  cascadePill: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  cascadePill: { borderRadius: RADIUS.sm, paddingHorizontal: 10, paddingVertical: 4 },
   cascadePillText: { fontSize: 12, fontWeight: '600' },
   prefDivider: { height: 1, marginBottom: 10 },
-  resetDangerBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 8, paddingVertical: 10 },
-  resetDangerText: { fontSize: 13, fontWeight: '600', color: '#ef4444' },
+  dangerBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: RADIUS.sm, paddingVertical: 10 },
+  dangerBtnText: { fontSize: 13, fontWeight: '600', color: '#ef4444' },
  
-  // Switch
   switch: { width: 46, height: 22, borderRadius: 11, flexDirection: 'row', alignItems: 'center' },
   switchThumb: { width: 18, height: 18, borderRadius: 9 },
  
-  // Day wheel
   fixedPanels: { paddingHorizontal: SPACING.lg, marginBottom: SPACING.sm },
-  dayCard: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: CARD_PADDING.horizontal, height: DAY_WHEEL_ITEM_HEIGHT * 3 },
-  dayLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginRight: SPACING.md },
-  dayWheelWrapper: { height: DAY_WHEEL_ITEM_HEIGHT * 3, flex: 1, overflow: 'hidden', position: 'relative' },
-  daySelIndicator: { position: 'absolute', top: DAY_WHEEL_ITEM_HEIGHT, left: 0, right: 0, height: DAY_WHEEL_ITEM_HEIGHT, borderRadius: 8, zIndex: -1 },
+  dayCard: { flexDirection: 'row', alignItems: 'center', borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.md, height: DAY_ITEM_H * 3 },
+  dayCardLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginRight: SPACING.md },
+  dayWheelWrap: { height: DAY_ITEM_H * 3, flex: 1, overflow: 'hidden', position: 'relative' },
+  daySelHighlight: { position: 'absolute', top: DAY_ITEM_H, left: 0, right: 0,
+    height: DAY_ITEM_H, borderRadius: RADIUS.sm, zIndex: -1 },
   dayItem: { justifyContent: 'center', alignItems: 'center' },
  
-  // Activities
   activitiesSection: { flex: 1, paddingHorizontal: SPACING.lg },
   activitiesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
   sectionTitle: { fontSize: 13, fontWeight: '600' },
   sectionHint: { fontSize: 10 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { paddingBottom: SPACING.sm },
  
-  // Slot item
-  slotItem: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, padding: CARD_PADDING.vertical, marginBottom: SPACING.sm },
+  slotRow: { flexDirection: 'row', alignItems: 'center', borderRadius: RADIUS.lg,
+    padding: SPACING.sm, marginBottom: SPACING.sm },
   dragHandle: { padding: 6, marginRight: 2 },
-  slotIcon: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: SPACING.sm },
+  slotIcon: { width: 30, height: 30, borderRadius: RADIUS.md, alignItems: 'center',
+    justifyContent: 'center', marginRight: SPACING.sm },
   slotContent: { flex: 1 },
   slotLabel: { fontSize: 13, fontWeight: '600', marginBottom: 2 },
   slotTimeRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
@@ -717,9 +623,10 @@ const S = StyleSheet.create({
   slotDur: { fontSize: 10, fontWeight: '500' },
   slotAction: { padding: 6 },
  
-  // Bottom
-  bottomActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, gap: SPACING.sm },
-  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: SPACING.md, borderRadius: 10, gap: 6 },
+  bottomBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, gap: SPACING.sm },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: SPACING.md, borderRadius: RADIUS.md, gap: 6 },
   actionBtnText: { fontSize: 13, fontWeight: '600' },
   addBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
 });

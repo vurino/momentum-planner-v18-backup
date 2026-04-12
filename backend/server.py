@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
 from datetime import datetime, date
+from contextlib import asynccontextmanager
+from scheduler import init_scheduler, stop_scheduler, generate_tasks_for_date
 
 
 ROOT_DIR = Path(__file__).parent
@@ -20,7 +22,15 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # Create the main app without a prefix
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await generate_tasks_for_date(db, date.today())
+    init_scheduler(db)
+    yield
+    stop_scheduler()
+    client.close()
+
+app = FastAPI(lifespan=lifespan)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -360,6 +370,3 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
