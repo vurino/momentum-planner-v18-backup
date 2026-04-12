@@ -1,59 +1,39 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { View, StyleSheet, Platform, Animated } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme, getCardShadow, SPACING } from '../../context/ThemeContext';
-
-// Tab icon with animation feedback - NO dot indicator
-const TabIcon = ({ 
-  name, 
-  focused, 
-  color, 
-  colors 
-}: { 
-  name: keyof typeof Ionicons.glyphMap; 
-  focused: boolean; 
+import { useTheme } from '../../context/ThemeContext';
+ 
+const TabIcon = ({ name, color }: {
+  name: keyof typeof Ionicons.glyphMap;
   color: string;
-  colors: any;
-}) => {
-  return (
-    <View style={[
-      styles.iconContainer,
-      focused && [
-        styles.iconContainerActive,
-        { backgroundColor: colors.accentGlow },
-      ],
-    ]}>
-      <Ionicons name={name} size={24} color={color} />
-    </View>
-  );
-};
-
+}) => (
+  <View style={styles.iconContainer}>
+    <Ionicons name={name} size={22} color={color} />
+  </View>
+);
+ 
 export default function TabLayout() {
   const { isDark, colors } = useTheme();
-
-  const tabBarStyle = {
-    backgroundColor: colors.card,
-    borderTopWidth: 0,
-    height: Platform.OS === 'ios' ? 95 : 75,
-    paddingBottom: Platform.OS === 'ios' ? 26 : 10,
-    paddingTop: 12,
-    ...getCardShadow(isDark),
-    shadowOffset: { width: 0, height: -2 },
-  };
-
+ 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: tabBarStyle,
         tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.iconInactive,
-        tabBarLabelStyle: styles.tabBarLabel,
-        tabBarItemStyle: styles.tabBarItem,
-        tabBarBackground: () => (
-          <View style={[styles.tabBarBackground, { backgroundColor: colors.card }]} />
-        ),
+        tabBarInactiveTintColor: colors.tabInactive,
+        tabBarStyle: {
+          backgroundColor: isDark ? colors.bgBase : colors.bgSurface,
+          borderTopColor: colors.tabBorder,
+          borderTopWidth: 1,
+          height: Platform.OS === 'ios' ? 85 : 65,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+        },
       }}
     >
       <Tabs.Screen
@@ -61,12 +41,7 @@ export default function TabLayout() {
         options={{
           title: 'Today',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon 
-              name={focused ? 'today' : 'today-outline'} 
-              focused={focused} 
-              color={color} 
-              colors={colors}
-            />
+            <TabIcon name={focused ? 'today' : 'today-outline'} color={color} />
           ),
         }}
       />
@@ -75,12 +50,7 @@ export default function TabLayout() {
         options={{
           title: 'History',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon 
-              name={focused ? 'calendar' : 'calendar-outline'} 
-              focused={focused} 
-              color={color}
-              colors={colors}
-            />
+            <TabIcon name={focused ? 'calendar' : 'calendar-outline'} color={color} />
           ),
         }}
       />
@@ -89,39 +59,18 @@ export default function TabLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon 
-              name={focused ? 'settings' : 'settings-outline'} 
-              focused={focused} 
-              color={color}
-              colors={colors}
-            />
+            <TabIcon name={focused ? 'settings' : 'settings-outline'} color={color} />
           ),
         }}
       />
     </Tabs>
   );
 }
-
+ 
 const styles = StyleSheet.create({
-  tabBarBackground: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  tabBarLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  tabBarItem: {
-    paddingVertical: 6,
-  },
   iconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
-    borderRadius: 14,
-    position: 'relative',
-  },
-  iconContainerActive: {
-    transform: [{ scale: 1.05 }],
   },
 });
+ 

@@ -35,18 +35,23 @@ const DAY_OPTIONS = [
  
 const DAY_ITEM_H = 32;
  
-const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-  'restaurant':'restaurant-outline','sunny':'sunny-outline','briefcase':'briefcase-outline',
-  'cafe':'cafe-outline','trending-up':'trending-up-outline','book':'book-outline',
-  'fitness':'fitness-outline','fast-food':'fast-food-outline','analytics':'analytics-outline',
-  'code':'code-outline','moon':'moon-outline','bed':'bed-outline','time':'time-outline',
-  'heart':'heart-outline','musical-notes':'musical-notes-outline',
-  'game-controller':'game-controller-outline','car':'car-outline','home':'home-outline',
-  'pencil':'pencil-outline','school':'school-outline','walk':'walk-outline',
-  'water':'water-outline','leaf':'leaf-outline','medkit':'medkit-outline',
+const iconMap: Record<string, string> = {
+  'restaurant': 'restaurant-outline', 'sunny': 'sunny-outline', 'briefcase': 'briefcase-outline',
+  'cafe': 'cafe-outline', 'trending-up': 'trending-up-outline', 'book': 'book-outline',
+  'fitness': 'fitness-outline', 'fast-food': 'fast-food-outline', 'analytics': 'analytics-outline',
+  'code': 'code-slash-outline', 'moon': 'moon-outline', 'bed': 'bed-outline', 'time': 'time-outline',
+  'heart': 'heart-outline', 'musical-notes': 'musical-notes-outline',
+  'game-controller': 'game-controller-outline', 'car': 'car-outline', 'home': 'home-outline',
+  'pencil': 'pencil-outline', 'school': 'school-outline', 'walk': 'walk-outline',
+  'water': 'water-outline', 'leaf': 'leaf-outline', 'medkit': 'medkit-outline',
+  'settings': 'settings-outline',
 };
-const getIcon = (name: string): keyof typeof Ionicons.glyphMap =>
-  iconMap[name] || iconMap[name + '-outline'] || 'ellipse-outline';
+const getIcon = (name: string): keyof typeof Ionicons.glyphMap => {
+  if (!name) return 'time-outline';
+  if (iconMap[name]) return iconMap[name] as keyof typeof Ionicons.glyphMap;
+  if (name.endsWith('-outline')) return name as keyof typeof Ionicons.glyphMap;
+  return (name + '-outline') as keyof typeof Ionicons.glyphMap;
+};
  
 const calcDuration = (start: string, end: string) => {
   const [sH, sM] = start.split(':').map(Number);
