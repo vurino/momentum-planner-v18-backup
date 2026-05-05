@@ -13,29 +13,33 @@ interface ConfirmModalProps {
   isDanger?: boolean;
   isDark: boolean;
   colors: any;
+  customContent?: React.ReactNode;
 }
  
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   visible, onClose, onConfirm,
   title, message, confirmText = 'Confirm', cancelText = 'Cancel',
-  isDanger = false, isDark, colors,
+  isDanger = false, isDark, colors, customContent,
 }) => (
   <Modal visible={visible} transparent animationType="fade">
     <Pressable style={[styles.overlay, { backgroundColor: colors.modalOverlay }]} onPress={onClose}>
-      <Pressable style={[styles.card, { backgroundColor: isDark ? colors.bgSurface || '#212530' : colors.bgSurface }]}
-        onPress={e => e.stopPropagation()}>
- 
+      <Pressable
+        style={[styles.card, { backgroundColor: isDark ? colors.bgSurface || '#212530' : colors.bgSurface }]}
+        onPress={e => e.stopPropagation()}
+      >
         <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
-        <Text style={[styles.message, { color: colors.textMuted }]}>{message}</Text>
- 
+        {!!message && (
+          <Text style={[styles.message, { color: colors.textMuted }]}>{message}</Text>
+        )}
+        {customContent}
         <View style={styles.btns}>
           <TouchableOpacity
-            style={[styles.btn, { backgroundColor: isDark ? colors.bgBase : '#e8e2d8', borderWidth: 0.5, borderColor: colors.dividerStrong }]}
+            style={[styles.btn, { backgroundColor: isDark ? colors.bgBase : '#e8e2d8',
+              borderWidth: 0.5, borderColor: colors.dividerStrong }]}
             onPress={onClose}
           >
             <Text style={[styles.btnText, { color: colors.textMuted }]}>{cancelText}</Text>
           </TouchableOpacity>
- 
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: isDanger ? '#ef4444' : colors.accent }]}
             onPress={onConfirm}
@@ -49,19 +53,16 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 );
  
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24,
-  },
+  overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   card: {
     width: '100%', maxWidth: 340,
-    borderRadius: RADIUS.xl,
-    padding: SPACING.lg,
+    borderRadius: RADIUS.xl, padding: SPACING.lg,
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
   },
   title:   { fontSize: FONT.md, fontWeight: '700', marginBottom: SPACING.sm },
-  message: { fontSize: FONT.sm, lineHeight: 20, marginBottom: SPACING.lg },
-  btns:    { flexDirection: 'row', gap: SPACING.sm },
+  message: { fontSize: FONT.sm, lineHeight: 20, marginBottom: SPACING.md },
+  btns:    { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md },
   btn:     { flex: 1, paddingVertical: 13, borderRadius: RADIUS.md, alignItems: 'center' },
   btnText: { fontSize: FONT.sm, fontWeight: '600' },
 });
