@@ -1,76 +1,42 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
-import { View, StyleSheet, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
- 
-const TabIcon = ({ name, color }: {
-  name: keyof typeof Ionicons.glyphMap;
-  color: string;
-}) => (
-  <View style={styles.iconContainer}>
-    <Ionicons name={name} size={22} color={color} />
-  </View>
-);
- 
-export default function TabLayout() {
-  const { isDark, colors } = useTheme();
- 
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import {
+  useFonts,
+  Montserrat_400Regular,
+  Montserrat_500Medium,
+  Montserrat_600SemiBold,
+  Montserrat_700Bold,
+} from "@expo-google-fonts/montserrat";
+import { View } from "react-native";
+import { ThemeProvider } from "../context/ThemeContext";
+
+export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Montserrat_400Regular,
+    Montserrat_500Medium,
+    Montserrat_600SemiBold,
+    Montserrat_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return <View style={{ flex: 1, backgroundColor: "#090909" }} />;
+  }
+
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: {
-          backgroundColor: isDark ? colors.bgBase : colors.bgSurface,
-          borderTopColor: colors.tabBorder,
-          borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 85 : 65,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
-          paddingTop: 8,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Today',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name={focused ? 'today' : 'today-outline'} color={color} />
-          ),
+    <ThemeProvider>
+      <StatusBar style="light" />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: "#090909" },
         }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'History',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name={focused ? 'calendar' : 'calendar-outline'} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name={focused ? 'settings' : 'settings-outline'} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen
+          name="focus"
+          options={{ presentation: "fullScreenModal" }}
+        />
+      </Stack>
+    </ThemeProvider>
   );
 }
- 
-const styles = StyleSheet.create({
-  iconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
- 

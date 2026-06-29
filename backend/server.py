@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
 from scheduler import init_scheduler, stop_scheduler, generate_tasks_for_date
 
@@ -369,4 +369,59 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+
+@app.get("/api/history")
+async def get_history(days: int = 7):
+    records = []
+    today = datetime.utcnow().date()
+
+    for i in range(days):
+        d = today - timedelta(days=i)
+        date_str = d.isoformat()
+
+        tasks = await db.daily_tasks.find({"date": date_str}).to_list(None)
+        total = len(tasks)
+        done  = sum(1 for t in tasks if t.get("done", False))
+        pct   = round((done / total * 100), 1) if total > 0 else 0.0
+
+        records.append({
+            "date":  date_str,
+            "done":  done,
+            "total": total,
+            "pct":   pct,
+        })
+
+    return records
+
+
+@app.get("/api/streak")
+async def get_streak():
+    streak = 0
+    today  = datetime.utcnow().date()
+
+    for i in range(365):
+        d = today - timedelta(days=i)
+        date_str = d.isoformat()
+
+        tasks = await db.daily_tasks.find({"date": date_str}).to_list(None)
+        if not tasks:
+            continue
+
+        total = len(tasks)
+        done  = sum(1 for t in tasks if t.get("done", False))
+
+        if done < total:
+            break
+
+        streak += 1
+
+    return {"streak": streak}
+
+
+@app.delete("/api/reset")
+async def reset_all_data():
+    result = await db.daily_tasks.delete_many({})
+    return {"deleted": result.deleted_count}
 
