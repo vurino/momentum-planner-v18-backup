@@ -1,42 +1,59 @@
-import { Stack } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import {
-  useFonts,
-  Montserrat_400Regular,
-  Montserrat_500Medium,
-  Montserrat_600SemiBold,
-  Montserrat_700Bold,
-} from "@expo-google-fonts/montserrat";
-import { View } from "react-native";
-import { ThemeProvider } from "../context/ThemeContext";
+import { Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
-export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
-    Montserrat_400Regular,
-    Montserrat_500Medium,
-    Montserrat_600SemiBold,
-    Montserrat_700Bold,
-  });
+type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
 
-  if (!fontsLoaded) {
-    return <View style={{ flex: 1, backgroundColor: "#090909" }} />;
-  }
+const TABS: {
+  name: string;
+  label: string;
+  icon: IoniconsName;
+  iconActive: IoniconsName;
+}[] = [
+  { name: "index",    label: "Today",    icon: "ellipse-outline",   iconActive: "ellipse"    },
+  { name: "routine",  label: "Routine",  icon: "repeat-outline",    iconActive: "repeat"     },
+  { name: "history",  label: "History",  icon: "bar-chart-outline", iconActive: "bar-chart"  },
+  { name: "settings", label: "Settings", icon: "settings-outline",  iconActive: "settings"   },
+];
 
+export default function TabsLayout() {
   return (
-    <ThemeProvider>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: "#090909" },
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen
-          name="focus"
-          options={{ presentation: "fullScreenModal" }}
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: "#111116",
+          borderTopColor: "#1e1e28",
+          borderTopWidth: 1,
+          height: 64,
+          paddingBottom: 10,
+          paddingTop: 8,
+        },
+        tabBarActiveTintColor: "#ff6b35",
+        tabBarInactiveTintColor: "#2e2c3a",
+        tabBarLabelStyle: {
+          fontFamily: "Montserrat_600SemiBold",
+          fontSize: 10,
+          letterSpacing: 1,
+          textTransform: "uppercase",
+        },
+      }}
+    >
+      {TABS.map((tab) => (
+        <Tabs.Screen
+          key={tab.name}
+          name={tab.name}
+          options={{
+            title: tab.label,
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? tab.iconActive : tab.icon}
+                size={22}
+                color={color}
+              />
+            ),
+          }}
         />
-      </Stack>
-    </ThemeProvider>
+      ))}
+    </Tabs>
   );
 }

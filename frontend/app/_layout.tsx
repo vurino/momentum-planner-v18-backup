@@ -8,7 +8,6 @@ import {
   Montserrat_700Bold,
 } from "@expo-google-fonts/montserrat";
 import { View } from "react-native";
-import { T } from "../context/tokens";
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -19,7 +18,7 @@ export default function RootLayout() {
   });
 
   if (!fontsLoaded) {
-    return <View style={{ flex: 1, backgroundColor: T.bg }} />;
+    return <View style={{ flex: 1, backgroundColor: "#090909" }} />;
   }
 
   return (
@@ -28,7 +27,7 @@ export default function RootLayout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: T.bg },
+          contentStyle: { backgroundColor: "#090909" },
         }}
       >
         <Stack.Screen name="(tabs)" />

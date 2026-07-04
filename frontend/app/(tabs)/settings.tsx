@@ -192,7 +192,7 @@ const s = StyleSheet.create({
   rowSub:        { fontFamily: "Montserrat_500Medium", fontSize: 11, color: "#5a576a", marginTop: 3 },
   dangerLabel:   { color: "#c04040" },
 
-  disabledToggle: { width: 40, height: 22, borderRadius: 99, backgroundColor: "#1e1e28", borderWidth: 1, borderColor: "#1e1e28", justifyContent: "center", opacity: 0.4 },
+  disabledToggle: { width: 40, height: 22, borderRadius: 99, backgroundColor: "#1e1e28", borderWidth: 1, borderColor: "#1e1e28", justifyContent: "center", opacity: 0.5 },
   disabledKnob:   { width: 14, height: 14, borderRadius: 99, backgroundColor: "#d4562a", marginLeft: 21 },
 
   resetBtn:      { borderWidth: 1, borderColor: "rgba(192,64,64,0.35)", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, minWidth: 64, alignItems: "center" },
