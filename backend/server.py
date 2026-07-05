@@ -74,6 +74,10 @@ class DailyTask(BaseModel):
     slot_id: str
     completed: bool = False
     notes: Optional[str] = None  # Per-day notes for this task
+    name: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    duration: Optional[int] = None
 
 class DailyTaskUpdate(BaseModel):
     completed: Optional[bool] = None
@@ -107,6 +111,32 @@ def get_day_abbr(date_str: str) -> str:
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
     return days[date_obj.weekday()]
+
+def _slot_duration_minutes(start_time: str, end_time: str) -> int:
+    """Minutes between two HH:MM times, wrapping past midnight"""
+    sh, sm = map(int, start_time.split(":"))
+    eh, em = map(int, end_time.split(":"))
+    mins = (eh * 60 + em) - (sh * 60 + sm)
+    if mins <= 0:
+        mins += 24 * 60
+    return mins
+
+async def _enrich_tasks_with_slot_info(tasks: list) -> list:
+    """Attach name/start_time/end_time/duration from each task's schedule slot"""
+    slot_ids = {t["slot_id"] for t in tasks}
+    slots = await db.schedule_slots.find({"id": {"$in": list(slot_ids)}}).to_list(100)
+    slots_by_id = {s["id"]: s for s in slots}
+
+    enriched = []
+    for t in tasks:
+        slot = slots_by_id.get(t["slot_id"])
+        if slot:
+            t["name"] = slot.get("label")
+            t["start_time"] = slot.get("start_time")
+            t["end_time"] = slot.get("end_time")
+            t["duration"] = _slot_duration_minutes(slot["start_time"], slot["end_time"])
+        enriched.append(t)
+    return enriched
 
 
 # Routes
@@ -222,26 +252,29 @@ async def get_daily_tasks(date_str: str):
                 await db.daily_tasks.insert_one(task.model_dump())
         
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
-    
+
+    tasks = await _enrich_tasks_with_slot_info(tasks)
     return [DailyTask(**task) for task in tasks]
 
+@api_router.patch("/daily-tasks/{task_id}", response_model=DailyTask)
 @api_router.put("/daily-tasks/{task_id}", response_model=DailyTask)
 async def update_daily_task(task_id: str, task_update: DailyTaskUpdate):
     """Update a daily task (toggle completion or update notes)"""
     update_data = {k: v for k, v in task_update.model_dump().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No update data provided")
-    
+
     result = await db.daily_tasks.update_one(
         {"id": task_id},
         {"$set": update_data}
     )
-    
+
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     updated_task = await db.daily_tasks.find_one({"id": task_id})
-    return DailyTask(**updated_task)
+    enriched = await _enrich_tasks_with_slot_info([updated_task])
+    return DailyTask(**enriched[0])
 
 @api_router.get("/daily-progress/{date_str}")
 async def get_daily_progress(date_str: str):
@@ -383,7 +416,7 @@ async def get_history(days: int = 7):
 
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(None)
         total = len(tasks)
-        done  = sum(1 for t in tasks if t.get("done", False))
+        done  = sum(1 for t in tasks if t.get("completed", False))
         pct   = round((done / total * 100), 1) if total > 0 else 0.0
 
         records.append({
@@ -410,7 +443,7 @@ async def get_streak():
             continue
 
         total = len(tasks)
-        done  = sum(1 for t in tasks if t.get("done", False))
+        done  = sum(1 for t in tasks if t.get("completed", False))
 
         if done < total:
             break
@@ -424,4 +457,3 @@ async def get_streak():
 async def reset_all_data():
     result = await db.daily_tasks.delete_many({})
     return {"deleted": result.deleted_count}
-

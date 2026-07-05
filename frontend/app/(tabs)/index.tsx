@@ -6,11 +6,12 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
+import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 
-const BASE = "http://localhost:8001";
+const BASE = "";
 
 interface Task {
-  _id: string;
+  id: string;
   name: string;
   done: boolean;
   completed: boolean;
@@ -66,7 +67,7 @@ function formatDur(min: number) {
   return `${min} min`;
 }
 
-function PulsingDot() {
+function PulsingDot({ color }: { color: string }) {
   const anim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.loop(
@@ -76,38 +77,48 @@ function PulsingDot() {
       ])
     ).start();
   }, []);
-  return <Animated.View style={[styles.dot, { opacity: anim }]} />;
+  return <Animated.View style={[styles.dot, { backgroundColor: color, opacity: anim }]} />;
 }
 
-function HeroCard({ task }: { task: Task }) {
+function HeroCard({ task, T }: { task: Task; T: ThemeTokens }) {
   const timeStr = getTaskTime(task);
   const duration = getTaskDuration(task);
   const { remaining, pct } = calcRemaining(timeStr, duration);
 
   return (
-    <View style={styles.hero}>
+    <View style={[
+      styles.hero,
+      { backgroundColor: T.surface, borderColor: T.border, borderLeftColor: T.orange, shadowColor: T.orange },
+    ]}>
       <LinearGradient
-        colors={["#d4562a", "transparent"]}
+        colors={[T.orange, "transparent"]}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
         style={styles.heroGlow}
       />
       <View style={styles.heroLabel}>
-        <PulsingDot />
-        <Text style={styles.heroLabelText}>Now active</Text>
+        <PulsingDot color={T.orange} />
+        <Text style={[styles.heroLabelText, { color: T.orange }]}>Now active</Text>
       </View>
-      <Text style={styles.heroName}>{task.name}</Text>
-      <Text style={styles.heroMeta}>
+      <Text style={[styles.heroName, { color: T.t1 }]}>{task.name}</Text>
+      <Text style={[styles.heroMeta, { color: T.t2 }]}>
         {timeStr} · {formatDur(duration)}
       </Text>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${pct}%` as any }]} />
+      <View style={[styles.progressTrack, { backgroundColor: T.border }]}>
+        <View style={[styles.progressFill, { width: `${pct}%` as any, backgroundColor: T.orange }]} />
       </View>
-      <Text style={styles.heroRemain}>
+      <Text style={[styles.heroRemain, { color: T.t2 }]}>
         {remaining > 0 ? `${remaining} min remaining` : "Time's up"}
       </Text>
       <TouchableOpacity
-        style={styles.focusBtn}
-        onPress={() => router.push("/focus")}
+        style={[styles.focusBtn, { backgroundColor: T.orange, shadowColor: T.orange }]}
+        onPress={() => router.push({
+          pathname: "/focus",
+          params: {
+            label: task.name,
+            start_time: timeStr,
+            end_time: task.end_time ?? "",
+          },
+        })}
       >
         <Text style={styles.focusBtnText}>Focus</Text>
       </TouchableOpacity>
@@ -116,9 +127,9 @@ function HeroCard({ task }: { task: Task }) {
 }
 
 function TaskRow({
-  task, isLast, onToggle,
+  task, isLast, onToggle, T,
 }: {
-  task: Task; isLast: boolean; onToggle: (id: string, currentDone: boolean) => void;
+  task: Task; isLast: boolean; onToggle: (id: string, currentDone: boolean) => void; T: ThemeTokens;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const whiteOpacity = useRef(new Animated.Value(task.done ? 1 : 0)).current;
@@ -133,7 +144,7 @@ function TaskRow({
     } else {
       Animated.timing(whiteOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start();
     }
-    onToggle(task._id, task.done);
+    onToggle(task.id, task.done);
   };
 
   const timeStr = getTaskTime(task);
@@ -142,7 +153,7 @@ function TaskRow({
   return (
     <View style={[
       styles.taskRow,
-      !isLast && styles.taskBorder,
+      !isLast && { borderBottomWidth: 1, borderBottomColor: T.border },
       task.done && styles.taskDone,
     ]}>
       <TouchableOpacity
@@ -151,19 +162,28 @@ function TaskRow({
       >
         <Animated.View style={[
           styles.checkbox,
-          task.done && styles.checkboxDone,
+          { borderColor: T.border },
+          task.done && { borderColor: T.t2, backgroundColor: T.checkedOverlay },
           { transform: [{ scale }] },
         ]}>
-          <Animated.Text style={[styles.checkmark, { opacity: whiteOpacity }]}>
+          <Animated.Text style={[styles.checkmark, { color: T.t1, opacity: whiteOpacity }]}>
             ✓
           </Animated.Text>
         </Animated.View>
       </TouchableOpacity>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.taskName, task.done && styles.taskNameDone]}>
+        <Text style={[
+          styles.taskName,
+          { color: T.t1 },
+          task.done && { color: T.t3, textDecorationLine: "line-through", textDecorationColor: T.t4 },
+        ]}>
           {task.name}
         </Text>
-        <Text style={[styles.taskMeta, task.done && styles.taskMetaDone]}>
+        <Text style={[
+          styles.taskMeta,
+          { color: T.t2 },
+          task.done && { color: T.t3 },
+        ]}>
           {timeStr} · {formatDur(duration)}
         </Text>
       </View>
@@ -172,6 +192,7 @@ function TaskRow({
 }
 
 export default function TodayScreen() {
+  const { T } = useSimpleTheme();
   const [tasks, setTasks]       = useState<Task[]>([]);
   const [streak, setStreak]     = useState(0);
   const [loading, setLoading]   = useState(true);
@@ -200,7 +221,7 @@ export default function TodayScreen() {
 
   const toggleTask = async (id: string, currentDone: boolean) => {
     setTasks(prev =>
-      prev.map(t => t._id === id ? { ...t, done: !t.done } : t)
+      prev.map(t => t.id === id ? { ...t, done: !t.done } : t)
     );
     try {
       await fetch(`${BASE}/api/daily-tasks/${id}`, {
@@ -210,7 +231,7 @@ export default function TodayScreen() {
       });
     } catch (e) {
       setTasks(prev =>
-        prev.map(t => t._id === id ? { ...t, done: currentDone } : t)
+        prev.map(t => t.id === id ? { ...t, done: currentDone } : t)
       );
     }
   };
@@ -220,19 +241,19 @@ export default function TodayScreen() {
   );
 
   const activeTask = sortedTasks.find(t => !t.done) ?? null;
-  const listTasks  = sortedTasks.filter(t => t._id !== activeTask?._id);
+  const listTasks  = sortedTasks.filter(t => t.id !== activeTask?.id);
   const doneCount  = tasks.filter(t => t.done).length;
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator color="#d4562a" />
+      <View style={[styles.centered, { backgroundColor: T.bg }]}>
+        <ActivityIndicator color={T.orange} />
       </View>
     );
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: T.bg }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -241,48 +262,49 @@ export default function TodayScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => { setRefreshing(true); fetchData(); }}
-            tintColor="#d4562a"
+            tintColor={T.orange}
           />
         }
       >
         <View style={styles.header}>
-          <Text style={styles.greeting}>{getGreeting()}</Text>
-          <Text style={styles.dateText}>{formatDate()}</Text>
+          <Text style={[styles.greeting, { color: T.orange }]}>{getGreeting()}</Text>
+          <Text style={[styles.dateText, { color: T.t1 }]}>{formatDate()}</Text>
         </View>
 
         {activeTask
-          ? <HeroCard task={activeTask} />
+          ? <HeroCard task={activeTask} T={T} />
           : (
-            <View style={[styles.hero, styles.heroEmpty]}>
-              <Text style={styles.emptyIcon}>✓</Text>
-              <Text style={styles.emptyText}>All done for today</Text>
+            <View style={[styles.hero, styles.heroEmpty, { backgroundColor: T.surface, borderColor: T.border, borderLeftColor: T.orange }]}>
+              <Text style={[styles.emptyIcon, { color: T.orange }]}>✓</Text>
+              <Text style={[styles.emptyText, { color: T.t2 }]}>All done for today</Text>
             </View>
           )
         }
 
+        <View style={[styles.footer, { borderBottomColor: T.border }]}>
+          <Text style={[styles.footerLeft, { color: T.t2 }]}>{doneCount} of {tasks.length} done</Text>
+          <Text style={[styles.footerRight, { color: T.t1 }]}>{streak}d streak</Text>
+        </View>
+
         {listTasks.length > 0 && (
-          <Text style={styles.listLabel}>Up next</Text>
+          <Text style={[styles.listLabel, { color: T.t2 }]}>Today's tasks</Text>
         )}
 
         {listTasks.map((task, i) => (
           <TaskRow
-            key={task._id}
+            key={task.id}
             task={task}
             isLast={i === listTasks.length - 1}
             onToggle={toggleTask}
+            T={T}
           />
         ))}
-
-        <View style={styles.footer}>
-          <Text style={styles.footerLeft}>{doneCount} of {tasks.length} done</Text>
-          <Text style={styles.footerRight}>{streak}d streak</Text>
-        </View>
 
         <View style={{ height: 24 }} />
       </ScrollView>
 
       <LinearGradient
-        colors={["transparent", "#090909"]}
+        colors={["transparent", T.bg]}
         style={styles.fade}
         pointerEvents="none"
       />
@@ -291,58 +313,53 @@ export default function TodayScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen:        { flex: 1, backgroundColor: "#090909" },
+  screen:        { flex: 1 },
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 80 },
-  centered:      { flex: 1, backgroundColor: "#090909", alignItems: "center", justifyContent: "center" },
+  centered:      { flex: 1, alignItems: "center", justifyContent: "center" },
 
   header:        { paddingTop: 24, paddingBottom: 22 },
-  greeting:      { fontFamily: "Montserrat_600SemiBold", fontSize: 11, letterSpacing: 3, color: "#d4562a", textTransform: "uppercase", marginBottom: 6 },
-  dateText:      { fontFamily: "Montserrat_700Bold", fontSize: 18, color: "#ede9e1", letterSpacing: 0.3 },
+  greeting:      { fontFamily: "Montserrat_600SemiBold", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: 6 },
+  dateText:      { fontFamily: "Montserrat_700Bold", fontSize: 18, letterSpacing: 0.3 },
 
   hero: {
-    backgroundColor: "#111116",
-    borderWidth: 1, borderColor: "#1e1e28",
-    borderLeftWidth: 3, borderLeftColor: "#d4562a",
+    borderWidth: 1,
+    borderLeftWidth: 3,
     borderRadius: 16, padding: 20, marginBottom: 28,
     overflow: "hidden", position: "relative",
-    shadowColor: "#d4562a", shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15, shadowRadius: 12, elevation: 4,
   },
   heroEmpty:     { alignItems: "center", justifyContent: "center", minHeight: 100, gap: 8 },
   heroGlow:      { position: "absolute", top: 0, left: 0, right: 0, height: 1, opacity: 0.4 },
   heroLabel:     { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-  heroLabelText: { fontFamily: "Montserrat_700Bold", fontSize: 10, letterSpacing: 3, color: "#d4562a", textTransform: "uppercase" },
-  dot:           { width: 6, height: 6, borderRadius: 99, backgroundColor: "#d4562a" },
-  heroName:      { fontFamily: "Montserrat_700Bold", fontSize: 22, color: "#ede9e1", lineHeight: 28, marginBottom: 6, letterSpacing: -0.3 },
-  heroMeta:      { fontFamily: "Montserrat_500Medium", fontSize: 13, color: "#5a576a", marginBottom: 18, letterSpacing: 0.3 },
-  heroRemain:    { fontFamily: "Montserrat_500Medium", fontSize: 11, color: "#5a576a", letterSpacing: 1, marginTop: 7 },
+  heroLabelText: { fontFamily: "Montserrat_700Bold", fontSize: 10, letterSpacing: 3, textTransform: "uppercase" },
+  dot:           { width: 6, height: 6, borderRadius: 99 },
+  heroName:      { fontFamily: "Montserrat_700Bold", fontSize: 22, lineHeight: 28, marginBottom: 6, letterSpacing: -0.3 },
+  heroMeta:      { fontFamily: "Montserrat_500Medium", fontSize: 13, marginBottom: 18, letterSpacing: 0.3 },
+  heroRemain:    { fontFamily: "Montserrat_500Medium", fontSize: 11, letterSpacing: 1, marginTop: 7 },
 
-  progressTrack: { height: 2, backgroundColor: "#1e1e28", borderRadius: 99, overflow: "hidden" },
-  progressFill:  { height: "100%", backgroundColor: "#d4562a", borderRadius: 99 },
+  progressTrack: { height: 2, borderRadius: 99, overflow: "hidden" },
+  progressFill:  { height: "100%", borderRadius: 99 },
 
-  focusBtn:      { backgroundColor: "#d4562a", borderRadius: 10, marginTop: 16, padding: 13, alignItems: "center", shadowColor: "#d4562a", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 },
+  focusBtn:      { borderRadius: 10, marginTop: 16, padding: 13, alignItems: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 },
   focusBtnText:  { fontFamily: "Montserrat_700Bold", fontSize: 12, color: "#fff", letterSpacing: 2, textTransform: "uppercase" },
 
-  emptyIcon:     { fontFamily: "Montserrat_700Bold", fontSize: 28, color: "#d4562a" },
-  emptyText:     { fontFamily: "Montserrat_600SemiBold", fontSize: 15, color: "#5a576a" },
+  emptyIcon:     { fontFamily: "Montserrat_700Bold", fontSize: 28 },
+  emptyText:     { fontFamily: "Montserrat_600SemiBold", fontSize: 15 },
 
-  listLabel:     { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 3, color: "#5a576a", textTransform: "uppercase", marginBottom: 12 },
+  listLabel:     { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: 12, marginTop: 20 },
 
   taskRow:       { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 13 },
-  taskBorder:    { borderBottomWidth: 1, borderBottomColor: "#1e1e28" },
   taskDone:      { opacity: 0.4 },
-  checkbox:      { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: "#1e1e28", alignItems: "center", justifyContent: "center" },
-  checkboxDone:  { borderColor: "#5a576a", backgroundColor: "rgba(255,255,255,0.06)" },
-  checkmark:     { fontFamily: "Montserrat_700Bold", fontSize: 11, color: "#ffffff" },
-  taskName:      { fontFamily: "Montserrat_600SemiBold", fontSize: 14, color: "#ede9e1" },
-  taskNameDone:  { color: "#2e2c3a", textDecorationLine: "line-through", textDecorationColor: "#1a1825" },
-  taskMeta:      { fontFamily: "Montserrat_500Medium", fontSize: 11, color: "#5a576a", marginTop: 2 },
-  taskMetaDone:  { color: "#2e2c3a" },
+  checkbox:      { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  checkmark:     { fontFamily: "Montserrat_700Bold", fontSize: 11 },
+  taskName:      { fontFamily: "Montserrat_600SemiBold", fontSize: 14 },
+  taskMeta:      { fontFamily: "Montserrat_500Medium", fontSize: 11, marginTop: 2 },
 
-  footer:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 16, paddingBottom: 8 },
-  footerLeft:    { fontFamily: "Montserrat_600SemiBold", fontSize: 12, color: "#5a576a", letterSpacing: 1, textTransform: "uppercase" },
-  footerRight:   { fontFamily: "Montserrat_700Bold", fontSize: 12, color: "#ede9e1" },
+  footer:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingBottom: 16, borderBottomWidth: 1 },
+  footerLeft:    { fontFamily: "Montserrat_600SemiBold", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" },
+  footerRight:   { fontFamily: "Montserrat_700Bold", fontSize: 12 },
 
   fade:          { position: "absolute", bottom: 0, left: 0, right: 0, height: 56 } as any,
 });

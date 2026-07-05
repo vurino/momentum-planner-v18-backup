@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { TouchableOpacity, Animated, StyleSheet } from "react-native";
-import { T } from "../context/tokens";
+import { useSimpleTheme } from "../context/SimpleTheme";
 
 interface Props {
   value: boolean;
@@ -9,6 +9,7 @@ interface Props {
 }
 
 export default function Toggle({ value, onValueChange, disabled = false }: Props) {
+  const { T } = useSimpleTheme();
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
 
   useEffect(() => {

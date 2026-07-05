@@ -6,8 +6,9 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toggle from "../../components/Toggle";
+import { useSimpleTheme } from "../../context/SimpleTheme";
 
-const BASE = "http://localhost:8001";
+const BASE = "";
 
 interface Prefs {
   weekStartsMonday: boolean;
@@ -22,6 +23,7 @@ const DEFAULTS: Prefs = {
 };
 
 export default function SettingsScreen() {
+  const { isDark, T, toggleTheme } = useSimpleTheme();
   const [prefs, setPrefs]         = useState<Prefs>(DEFAULTS);
   const [loading, setLoading]     = useState(true);
   const [resetting, setResetting] = useState(false);
@@ -78,39 +80,37 @@ export default function SettingsScreen() {
 
   if (loading) {
     return (
-      <View style={s.centered}>
-        <ActivityIndicator color="#d4562a" />
+      <View style={[s.centered, { backgroundColor: T.bg }]}>
+        <ActivityIndicator color={T.orange} />
       </View>
     );
   }
 
   return (
-    <View style={s.screen}>
+    <View style={[s.screen, { backgroundColor: T.bg }]}>
       <ScrollView
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={s.header}>
-          <Text style={s.eyebrow}>Preferences</Text>
-          <Text style={s.title}>Settings</Text>
+          <Text style={[s.eyebrow, { color: T.orange }]}>Preferences</Text>
+          <Text style={[s.title, { color: T.t1 }]}>Settings</Text>
         </View>
 
         {/* Display */}
-        <Text style={s.sectionLabel}>Display</Text>
-        <View style={s.row}>
+        <Text style={[s.sectionLabel, { color: T.t2 }]}>Display</Text>
+        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
           <View style={s.rowInfo}>
-            <Text style={s.rowLabel}>Dark mode</Text>
-            <Text style={s.rowSub}>Always on · coming soon</Text>
+            <Text style={[s.rowLabel, { color: T.t1 }]}>Dark mode</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>{isDark ? "On" : "Off"} · tap to switch</Text>
           </View>
-          <View style={s.disabledToggle}>
-            <View style={s.disabledKnob} />
-          </View>
+          <Toggle value={isDark} onValueChange={toggleTheme} />
         </View>
-        <View style={s.row}>
+        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
           <View style={s.rowInfo}>
-            <Text style={s.rowLabel}>Week starts Monday</Text>
-            <Text style={s.rowSub}>Calendar alignment</Text>
+            <Text style={[s.rowLabel, { color: T.t1 }]}>Week starts Monday</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>Calendar alignment</Text>
           </View>
           <Toggle
             value={prefs.weekStartsMonday}
@@ -119,21 +119,21 @@ export default function SettingsScreen() {
         </View>
 
         {/* Notifications */}
-        <Text style={[s.sectionLabel, { marginTop: 24 }]}>Notifications</Text>
-        <View style={s.row}>
+        <Text style={[s.sectionLabel, { color: T.t2, marginTop: 24 }]}>Notifications</Text>
+        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
           <View style={s.rowInfo}>
-            <Text style={s.rowLabel}>Task reminders</Text>
-            <Text style={s.rowSub}>5 min before each task</Text>
+            <Text style={[s.rowLabel, { color: T.t1 }]}>Task reminders</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>5 min before each task</Text>
           </View>
           <Toggle
             value={prefs.taskReminders}
             onValueChange={v => setPref("taskReminders", v)}
           />
         </View>
-        <View style={s.row}>
+        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
           <View style={s.rowInfo}>
-            <Text style={s.rowLabel}>Daily summary</Text>
-            <Text style={s.rowSub}>Evening recap at 9 pm</Text>
+            <Text style={[s.rowLabel, { color: T.t1 }]}>Daily summary</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>Evening recap at 9 pm</Text>
           </View>
           <Toggle
             value={prefs.dailySummary}
@@ -142,11 +142,11 @@ export default function SettingsScreen() {
         </View>
 
         {/* Data */}
-        <Text style={[s.sectionLabel, { marginTop: 24 }]}>Data</Text>
-        <View style={[s.row, s.dangerRow]}>
+        <Text style={[s.sectionLabel, { color: T.t2, marginTop: 24 }]}>Data</Text>
+        <View style={[s.row, s.dangerRow, { backgroundColor: T.surface }]}>
           <View style={s.rowInfo}>
-            <Text style={[s.rowLabel, s.dangerLabel]}>Reset all data</Text>
-            <Text style={s.rowSub}>Wipe tasks and history</Text>
+            <Text style={[s.rowLabel, { color: T.danger }]}>Reset all data</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>Wipe tasks and history</Text>
           </View>
           <TouchableOpacity
             style={s.resetBtn}
@@ -154,18 +154,18 @@ export default function SettingsScreen() {
             disabled={resetting}
           >
             {resetting
-              ? <ActivityIndicator size="small" color="#c04040" />
-              : <Text style={s.resetBtnText}>Reset</Text>
+              ? <ActivityIndicator size="small" color={T.danger} />
+              : <Text style={[s.resetBtnText, { color: T.danger }]}>Reset</Text>
             }
           </TouchableOpacity>
         </View>
 
-        <Text style={s.version}>Momentum · v6.0 · Build 22</Text>
+        <Text style={[s.version, { color: T.t3 }]}>Momentum · v6.0 · Build 22</Text>
         <View style={{ height: 24 }} />
       </ScrollView>
 
       <LinearGradient
-        colors={["transparent", "#090909"]}
+        colors={["transparent", T.bg]}
         style={s.fade}
         pointerEvents="none"
       />
@@ -174,31 +174,27 @@ export default function SettingsScreen() {
 }
 
 const s = StyleSheet.create({
-  screen:        { flex: 1, backgroundColor: "#090909" },
+  screen:        { flex: 1 },
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 80 },
-  centered:      { flex: 1, backgroundColor: "#090909", alignItems: "center", justifyContent: "center" },
+  centered:      { flex: 1, alignItems: "center", justifyContent: "center" },
 
   header:        { paddingTop: 24, paddingBottom: 22 },
-  eyebrow:       { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 4, color: "#d4562a", textTransform: "uppercase", marginBottom: 6 },
-  title:         { fontFamily: "Montserrat_700Bold", fontSize: 28, color: "#ede9e1", lineHeight: 34 },
+  eyebrow:       { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 4, textTransform: "uppercase", marginBottom: 6 },
+  title:         { fontFamily: "Montserrat_700Bold", fontSize: 28, lineHeight: 34 },
 
-  sectionLabel:  { fontFamily: "Montserrat_700Bold", fontSize: 10, letterSpacing: 3, color: "#5a576a", textTransform: "uppercase", marginBottom: 10, paddingLeft: 2 },
+  sectionLabel:  { fontFamily: "Montserrat_700Bold", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", marginBottom: 10, paddingLeft: 2 },
 
-  row:           { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, backgroundColor: "#111116", borderWidth: 1, borderColor: "#1e1e28", borderRadius: 14, padding: 16, marginBottom: 8 },
-  dangerRow:     { borderColor: "rgba(192,64,64,0.25)" },
+  row:           { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 8 },
+  dangerRow:     { borderWidth: 1, borderColor: "rgba(192,64,64,0.25)" },
   rowInfo:       { flex: 1 },
-  rowLabel:      { fontFamily: "Montserrat_600SemiBold", fontSize: 14, color: "#ede9e1" },
-  rowSub:        { fontFamily: "Montserrat_500Medium", fontSize: 11, color: "#5a576a", marginTop: 3 },
-  dangerLabel:   { color: "#c04040" },
-
-  disabledToggle: { width: 40, height: 22, borderRadius: 99, backgroundColor: "#1e1e28", borderWidth: 1, borderColor: "#1e1e28", justifyContent: "center", opacity: 0.5 },
-  disabledKnob:   { width: 14, height: 14, borderRadius: 99, backgroundColor: "#d4562a", marginLeft: 21 },
+  rowLabel:      { fontFamily: "Montserrat_600SemiBold", fontSize: 14 },
+  rowSub:        { fontFamily: "Montserrat_500Medium", fontSize: 11, marginTop: 3 },
 
   resetBtn:      { borderWidth: 1, borderColor: "rgba(192,64,64,0.35)", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, minWidth: 64, alignItems: "center" },
-  resetBtnText:  { fontFamily: "Montserrat_700Bold", fontSize: 11, color: "#c04040", letterSpacing: 1, textTransform: "uppercase" },
+  resetBtnText:  { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase" },
 
-  version:       { fontFamily: "Montserrat_500Medium", fontSize: 11, color: "#2e2c3a", textAlign: "center", letterSpacing: 2, paddingTop: 20 },
+  version:       { fontFamily: "Montserrat_500Medium", fontSize: 11, textAlign: "center", letterSpacing: 2, paddingTop: 20 },
 
   fade:          { position: "absolute", bottom: 0, left: 0, right: 0, height: 56 } as any,
 });
