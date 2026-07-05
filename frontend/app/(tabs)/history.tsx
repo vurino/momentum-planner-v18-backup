@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View, Text, ScrollView, StyleSheet,
   ActivityIndicator, TouchableOpacity,
@@ -84,7 +84,6 @@ export default function HistoryScreen() {
   const now = new Date();
   const [calYear, setCalYear]   = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth() + 1);
-  const [monthProgress, setMonthProgress] = useState<Record<string, DayProgress>>({});
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<DayProgress | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -106,21 +105,13 @@ export default function HistoryScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`${BASE}/api/monthly-progress/${calYear}/${calMonth}`);
-        const data = await res.json();
-        const map: Record<string, DayProgress> = {};
-        (Array.isArray(data) ? data : []).forEach((d: any) => { map[d.date] = d; });
-        setMonthProgress(map);
-      } catch (e) {
-        console.error(e);
-      }
-    })();
-  }, [calYear, calMonth]);
+  useFocusEffect(useCallback(() => {
+    fetchData();
+    return () => {
+      setSelectedDate(null);
+      setSelectedDetail(null);
+    };
+  }, [fetchData]));
 
   const prevMonth = () => {
     if (calMonth === 1) { setCalMonth(12); setCalYear(y => y - 1); }
@@ -257,9 +248,6 @@ export default function HistoryScreen() {
               {week.map((day, di) => {
                 if (day === null) return <View key={di} style={s.calCell} />;
                 const dateStr = `${calYear}-${String(calMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                const prog = monthProgress[dateStr];
-                const pct = prog?.percentage ?? 0;
-                const hasProgress = (prog?.total ?? 0) > 0;
                 const isSelected = selectedDate === dateStr;
                 const isToday = dateStr === todayStr();
 
@@ -268,13 +256,12 @@ export default function HistoryScreen() {
                     <TouchableOpacity
                       style={[
                         s.calDayBtn,
-                        { backgroundColor: hasProgress ? (pct >= 100 ? `${T.green}30` : `${T.orange}22`) : "transparent" },
-                        isSelected && { borderWidth: 1.5, borderColor: T.orange },
+                        isSelected && { backgroundColor: `${T.orange}22`, borderWidth: 1.5, borderColor: T.orange },
                         isToday && !isSelected && { borderWidth: 1, borderColor: T.t3 },
                       ]}
                       onPress={() => selectDate(day)}
                     >
-                      <Text style={[s.calDayText, { color: hasProgress ? T.t1 : T.t3 }]}>{day}</Text>
+                      <Text style={[s.calDayText, { color: T.t1 }]}>{day}</Text>
                     </TouchableOpacity>
                   </View>
                 );

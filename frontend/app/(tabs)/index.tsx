@@ -6,7 +6,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
+import { scheduleTaskReminders } from "../../utils/notifications";
 
 const BASE = "";
 
@@ -207,8 +209,15 @@ export default function TodayScreen() {
       const tasksData  = await tasksRes.json();
       const streakData = await streakRes.json();
       const raw = Array.isArray(tasksData) ? tasksData : tasksData.tasks ?? [];
-      setTasks(raw.map((t: any) => ({ ...t, done: t.completed ?? false })));
+      const mapped = raw.map((t: any) => ({ ...t, done: t.completed ?? false }));
+      setTasks(mapped);
       setStreak(streakData.streak ?? 0);
+
+      const remindersPref = await AsyncStorage.getItem("taskReminders");
+      const remindersOn = remindersPref !== null ? JSON.parse(remindersPref) : true;
+      if (remindersOn) {
+        scheduleTaskReminders(mapped).catch(err => console.error(err));
+      }
     } catch (e) {
       console.error("Fetch error:", e);
     } finally {

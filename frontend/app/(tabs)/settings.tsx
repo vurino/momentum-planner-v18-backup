@@ -7,17 +7,21 @@ import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toggle from "../../components/Toggle";
 import { useSimpleTheme } from "../../context/SimpleTheme";
+import {
+  requestNotificationPermissions,
+  scheduleDailySummary,
+  cancelDailySummary,
+  cancelTaskReminders,
+} from "../../utils/notifications";
 
 const BASE = "";
 
 interface Prefs {
-  weekStartsMonday: boolean;
   taskReminders:    boolean;
   dailySummary:     boolean;
 }
 
 const DEFAULTS: Prefs = {
-  weekStartsMonday: true,
   taskReminders:    true,
   dailySummary:     false,
 };
@@ -31,13 +35,18 @@ export default function SettingsScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const keys = ["weekStartsMonday", "taskReminders", "dailySummary"];
+        const keys = ["taskReminders", "dailySummary"];
         const stored = await AsyncStorage.multiGet(keys);
         const parsed: Partial<Prefs> = {};
         stored.forEach(([key, val]) => {
           if (val !== null) (parsed as any)[key] = JSON.parse(val);
         });
-        setPrefs({ ...DEFAULTS, ...parsed });
+        const merged = { ...DEFAULTS, ...parsed };
+        setPrefs(merged);
+        if (merged.dailySummary) {
+          const granted = await requestNotificationPermissions();
+          if (granted) scheduleDailySummary();
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -51,6 +60,28 @@ export default function SettingsScreen() {
     try {
       await AsyncStorage.setItem(key, JSON.stringify(val));
     } catch (e) { console.error(e); }
+
+    if (val) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        Alert.alert(
+          "Notifications blocked",
+          "Enable notifications for this app in your browser or device settings, then try again."
+        );
+        setPrefs(p => ({ ...p, [key]: false }));
+        await AsyncStorage.setItem(key, JSON.stringify(false));
+        return;
+      }
+    }
+
+    if (key === "dailySummary") {
+      if (val) await scheduleDailySummary();
+      else await cancelDailySummary();
+    }
+
+    if (key === "taskReminders" && !val) {
+      await cancelTaskReminders();
+    }
   };
 
   const handleReset = () => {
@@ -106,16 +137,6 @@ export default function SettingsScreen() {
             <Text style={[s.rowSub, { color: T.t2 }]}>{isDark ? "On" : "Off"} · tap to switch</Text>
           </View>
           <Toggle value={isDark} onValueChange={toggleTheme} />
-        </View>
-        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
-          <View style={s.rowInfo}>
-            <Text style={[s.rowLabel, { color: T.t1 }]}>Week starts Monday</Text>
-            <Text style={[s.rowSub, { color: T.t2 }]}>Calendar alignment</Text>
-          </View>
-          <Toggle
-            value={prefs.weekStartsMonday}
-            onValueChange={v => setPref("weekStartsMonday", v)}
-          />
         </View>
 
         {/* Notifications */}

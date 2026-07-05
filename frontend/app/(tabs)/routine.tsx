@@ -329,7 +329,12 @@ export default function RoutineScreen() {
           <Text style={[s.subtitle, { color: T.t2 }]}>Activities repeat on your schedule</Text>
         </View>
 
-        <View style={s.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.filterRow}
+          style={s.filterScroll}
+        >
           {FILTER_OPTIONS.map(opt => {
             const active = filter === opt.key;
             return (
@@ -348,7 +353,7 @@ export default function RoutineScreen() {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
 
         {visibleSlots.length === 0 && (
           <View style={s.emptyState}>
@@ -415,7 +420,8 @@ const s = StyleSheet.create({
   title: { fontFamily: "Montserrat_700Bold", fontSize: 28, lineHeight: 34 },
   subtitle: { fontFamily: "Montserrat_500Medium", fontSize: 13, marginTop: 5 },
 
-  filterRow: { flexDirection: "row", gap: 8, marginBottom: 18 },
+  filterScroll: { marginBottom: 18, flexGrow: 0 },
+  filterRow: { flexDirection: "row", gap: 8, paddingRight: 20 },
   filterBtn: { borderWidth: 1, borderRadius: 99, paddingVertical: 7, paddingHorizontal: 14 },
   filterBtnText: { fontFamily: "Montserrat_600SemiBold", fontSize: 11 },
 
