@@ -1,20 +1,28 @@
 import React, { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Alert, ActivityIndicator,
+  StyleSheet, ActivityIndicator, Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toggle from "../../components/Toggle";
-import { useSimpleTheme } from "../../context/SimpleTheme";
+import { useSimpleTheme, ThemeMode } from "../../context/SimpleTheme";
 import {
   requestNotificationPermissions,
   scheduleDailySummary,
   cancelDailySummary,
   cancelTaskReminders,
 } from "../../utils/notifications";
+import { notify } from "../../utils/confirm";
+import ConfirmModal from "../../components/ConfirmModal";
 
 const BASE = "";
+
+const APPEARANCE_OPTIONS: { key: ThemeMode; label: string }[] = [
+  { key: "light",  label: "Light" },
+  { key: "dark",   label: "Dark" },
+  { key: "system", label: "System" },
+];
 
 interface Prefs {
   taskReminders:    boolean;
@@ -26,11 +34,19 @@ const DEFAULTS: Prefs = {
   dailySummary:     false,
 };
 
+function todayStr() {
+  return new Date().toISOString().split("T")[0];
+}
+
 export default function SettingsScreen() {
-  const { isDark, T, toggleTheme } = useSimpleTheme();
+  const { T, themeMode, setThemeMode } = useSimpleTheme();
   const [prefs, setPrefs]         = useState<Prefs>(DEFAULTS);
   const [loading, setLoading]     = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [pendingImport, setPendingImport] = useState<{ slots: any[]; tasks: any[]; fileName: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -64,12 +80,16 @@ export default function SettingsScreen() {
     if (val) {
       const granted = await requestNotificationPermissions();
       if (!granted) {
-        Alert.alert(
-          "Notifications blocked",
-          "Enable notifications for this app in your browser or device settings, then try again."
-        );
-        setPrefs(p => ({ ...p, [key]: false }));
-        await AsyncStorage.setItem(key, JSON.stringify(false));
+        // Browsers (and the Emergent web preview in particular) often block
+        // the notification permission prompt entirely. On web we keep the
+        // toggle on and the preference saved rather than silently reverting
+        // it — actual scheduling just gets skipped until permission is
+        // available. Native keeps the old strict revert-on-denial behavior.
+        if (Platform.OS !== "web") {
+          setPrefs(p => ({ ...p, [key]: false }));
+          await AsyncStorage.setItem(key, JSON.stringify(false));
+          notify("Notifications blocked", "Enable notifications for this app in your device settings, then try again.");
+        }
         return;
       }
     }
@@ -85,28 +105,95 @@ export default function SettingsScreen() {
   };
 
   const handleReset = () => {
-    Alert.alert(
-      "Reset all data?",
-      "This will wipe all tasks and history. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reset",
-          style: "destructive",
-          onPress: async () => {
-            setResetting(true);
-            try {
-              await fetch(`${BASE}/api/reset`, { method: "DELETE" });
-              Alert.alert("Done", "All data has been wiped.");
-            } catch (e) {
-              Alert.alert("Error", "Could not reset. Check connection.");
-            } finally {
-              setResetting(false);
-            }
-          },
-        },
-      ]
-    );
+    setConfirmReset(true);
+  };
+
+  const confirmResetNow = async () => {
+    setConfirmReset(false);
+    setResetting(true);
+    try {
+      await fetch(`${BASE}/api/reset`, { method: "DELETE" });
+      notify("Done", "All data has been wiped.");
+    } catch (e) {
+      notify("Error", "Could not reset. Check connection.");
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(`${BASE}/api/export`);
+      const data = await res.json();
+
+      if (Platform.OS === "web") {
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `momentum-export-${todayStr()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        notify("Not available", "Data export is currently only available when using the app in a web browser.");
+      }
+    } catch (e) {
+      notify("Export failed", "Could not export your data. Check your connection.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportPress = () => {
+    if (Platform.OS !== "web") {
+      notify("Not available", "Data import is currently only available when using the app in a web browser.");
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(String(reader.result));
+          const slots = Array.isArray(parsed.schedule_slots) ? parsed.schedule_slots : [];
+          const tasks = Array.isArray(parsed.daily_tasks) ? parsed.daily_tasks : [];
+          setPendingImport({ slots, tasks, fileName: file.name });
+        } catch (err) {
+          notify("Invalid file", "That doesn't look like a Momentum Planner backup file.");
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  const confirmImportNow = async () => {
+    if (!pendingImport) return;
+    const { slots, tasks } = pendingImport;
+    setPendingImport(null);
+    setImporting(true);
+    try {
+      const res = await fetch(`${BASE}/api/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule_slots: slots, daily_tasks: tasks }),
+      });
+      if (!res.ok) throw new Error("import failed");
+      notify("Done", "Your backup has been restored. Reopen Today, Routine, and History to see it.");
+    } catch (e) {
+      notify("Import failed", "Could not import your data. Make sure the file is a Momentum Planner export.");
+    } finally {
+      setImporting(false);
+    }
   };
 
   if (loading) {
@@ -131,12 +218,31 @@ export default function SettingsScreen() {
 
         {/* Display */}
         <Text style={[s.sectionLabel, { color: T.t2 }]}>Display</Text>
-        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
-          <View style={s.rowInfo}>
-            <Text style={[s.rowLabel, { color: T.t1 }]}>Dark mode</Text>
-            <Text style={[s.rowSub, { color: T.t2 }]}>{isDark ? "On" : "Off"} · tap to switch</Text>
+        <View style={[s.appearanceCard, { backgroundColor: T.surface, borderColor: T.border }]}>
+          <Text style={[s.rowLabel, { color: T.t1 }]}>Appearance</Text>
+          <Text style={[s.rowSub, { color: T.t2, marginBottom: 12 }]}>
+            {themeMode === "system" ? "Matches your device" : themeMode === "dark" ? "Always dark" : "Always light"}
+          </Text>
+          <View style={s.appearanceRow}>
+            {APPEARANCE_OPTIONS.map(opt => {
+              const active = themeMode === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[
+                    s.appearanceBtn,
+                    { borderColor: T.border },
+                    active && { backgroundColor: T.orange, borderColor: T.orange },
+                  ]}
+                  onPress={() => setThemeMode(opt.key)}
+                >
+                  <Text style={[s.appearanceBtnText, { color: active ? "#fff" : T.t2 }]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <Toggle value={isDark} onValueChange={toggleTheme} />
         </View>
 
         {/* Notifications */}
@@ -164,6 +270,38 @@ export default function SettingsScreen() {
 
         {/* Data */}
         <Text style={[s.sectionLabel, { color: T.t2, marginTop: 24 }]}>Data</Text>
+        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
+          <View style={s.rowInfo}>
+            <Text style={[s.rowLabel, { color: T.t1 }]}>Export data</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>Download a backup file</Text>
+          </View>
+          <TouchableOpacity
+            style={[s.exportBtn, { borderColor: T.border }]}
+            onPress={handleExport}
+            disabled={exporting}
+          >
+            {exporting
+              ? <ActivityIndicator size="small" color={T.t1} />
+              : <Text style={[s.exportBtnText, { color: T.t1 }]}>Export</Text>
+            }
+          </TouchableOpacity>
+        </View>
+        <View style={[s.row, { backgroundColor: T.surface, borderColor: T.border }]}>
+          <View style={s.rowInfo}>
+            <Text style={[s.rowLabel, { color: T.t1 }]}>Import data</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>Restore from a backup file</Text>
+          </View>
+          <TouchableOpacity
+            style={[s.exportBtn, { borderColor: T.border }]}
+            onPress={handleImportPress}
+            disabled={importing}
+          >
+            {importing
+              ? <ActivityIndicator size="small" color={T.t1} />
+              : <Text style={[s.exportBtnText, { color: T.t1 }]}>Import</Text>
+            }
+          </TouchableOpacity>
+        </View>
         <View style={[s.row, s.dangerRow, { backgroundColor: T.surface }]}>
           <View style={s.rowInfo}>
             <Text style={[s.rowLabel, { color: T.danger }]}>Reset all data</Text>
@@ -181,7 +319,7 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        <Text style={[s.version, { color: T.t3 }]}>Momentum · v6.0 · Build 22</Text>
+        <Text style={[s.version, { color: T.t3 }]}>Momentum Planner</Text>
         <View style={{ height: 24 }} />
       </ScrollView>
 
@@ -189,6 +327,28 @@ export default function SettingsScreen() {
         colors={["transparent", T.bg]}
         style={s.fade}
         pointerEvents="none"
+      />
+
+      <ConfirmModal
+        visible={confirmReset}
+        title="Reset all data?"
+        message="This will wipe all tasks and history. This cannot be undone."
+        confirmLabel="Reset"
+        T={T}
+        onCancel={() => setConfirmReset(false)}
+        onConfirm={confirmResetNow}
+      />
+
+      <ConfirmModal
+        visible={!!pendingImport}
+        title="Import data?"
+        message={pendingImport
+          ? `This replaces all current activities and tasks with "${pendingImport.fileName}" (${pendingImport.slots.length} activities, ${pendingImport.tasks.length} tasks). This cannot be undone.`
+          : ""}
+        confirmLabel="Import"
+        T={T}
+        onCancel={() => setPendingImport(null)}
+        onConfirm={confirmImportNow}
       />
     </View>
   );
@@ -211,6 +371,14 @@ const s = StyleSheet.create({
   rowInfo:       { flex: 1 },
   rowLabel:      { fontFamily: "Montserrat_600SemiBold", fontSize: 14 },
   rowSub:        { fontFamily: "Montserrat_500Medium", fontSize: 11, marginTop: 3 },
+
+  appearanceCard:   { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 8 },
+  appearanceRow:    { flexDirection: "row", gap: 8 },
+  appearanceBtn:    { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
+  appearanceBtnText: { fontFamily: "Montserrat_600SemiBold", fontSize: 12 },
+
+  exportBtn:      { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, minWidth: 64, alignItems: "center" },
+  exportBtnText:  { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase" },
 
   resetBtn:      { borderWidth: 1, borderColor: "rgba(192,64,64,0.35)", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, minWidth: 64, alignItems: "center" },
   resetBtnText:  { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase" },

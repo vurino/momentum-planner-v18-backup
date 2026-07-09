@@ -24,6 +24,7 @@ db = client[os.environ['DB_NAME']]
 # Create the main app without a prefix
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await _backfill_daily_task_names(db)
     await generate_tasks_for_date(db, date.today())
     init_scheduler(db)
     yield
@@ -73,6 +74,7 @@ class DailyTask(BaseModel):
     date: str  # YYYY-MM-DD format
     slot_id: str
     completed: bool = False
+    skipped: bool = False  # Excluded from totals/streak when true
     notes: Optional[str] = None  # Per-day notes for this task
     name: Optional[str] = None
     start_time: Optional[str] = None
@@ -81,10 +83,15 @@ class DailyTask(BaseModel):
 
 class DailyTaskUpdate(BaseModel):
     completed: Optional[bool] = None
+    skipped: Optional[bool] = None
     notes: Optional[str] = None
 
 class BulkSlotsUpdate(BaseModel):
     slots: List[ScheduleSlot]
+
+class ImportData(BaseModel):
+    schedule_slots: List[dict] = Field(default_factory=list)
+    daily_tasks: List[dict] = Field(default_factory=list)
 
 # Default schedule template - weekdays only for work activities
 DEFAULT_SCHEDULE = [
@@ -137,6 +144,43 @@ async def _enrich_tasks_with_slot_info(tasks: list) -> list:
             t["duration"] = _slot_duration_minutes(slot["start_time"], slot["end_time"])
         enriched.append(t)
     return enriched
+
+
+async def _backfill_daily_task_names(mongo_db):
+    """One-time startup migration: older daily_tasks rows only stored a slot_id
+    and relied on a live join to schedule_slots to show a name. If that slot was
+    later edited or deleted, the row would render blank forever. This bakes
+    name/start_time/end_time/duration onto every row that's missing them, and
+    drops rows whose source activity no longer exists (unrecoverable)."""
+    tasks = await mongo_db.daily_tasks.find({"name": None}).to_list(100000)
+    if not tasks:
+        return
+
+    slot_ids = {t["slot_id"] for t in tasks}
+    slots = await mongo_db.schedule_slots.find({"id": {"$in": list(slot_ids)}}).to_list(1000)
+    slots_by_id = {s["id"]: s for s in slots}
+
+    fixed, dropped = 0, 0
+    for t in tasks:
+        slot = slots_by_id.get(t["slot_id"])
+        if slot:
+            await mongo_db.daily_tasks.update_one(
+                {"id": t["id"]},
+                {"$set": {
+                    "name": slot.get("label"),
+                    "start_time": slot.get("start_time"),
+                    "end_time": slot.get("end_time"),
+                    "duration": _slot_duration_minutes(slot["start_time"], slot["end_time"]),
+                }},
+            )
+            fixed += 1
+        else:
+            await mongo_db.daily_tasks.delete_one({"id": t["id"]})
+            dropped += 1
+
+    logging.getLogger(__name__).info(
+        f"[Startup] Backfilled {fixed} daily tasks, dropped {dropped} orphaned tasks"
+    )
 
 
 # Routes
@@ -248,7 +292,15 @@ async def get_daily_tasks(date_str: str):
             # Only create task if slot is active for this day of week
             slot_days = slot.get('days', ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
             if day_abbr in slot_days:
-                task = DailyTask(date=date_str, slot_id=slot["id"], completed=False)
+                task = DailyTask(
+                    date=date_str,
+                    slot_id=slot["id"],
+                    completed=False,
+                    name=slot.get("label"),
+                    start_time=slot.get("start_time"),
+                    end_time=slot.get("end_time"),
+                    duration=_slot_duration_minutes(slot["start_time"], slot["end_time"]),
+                )
                 await db.daily_tasks.insert_one(task.model_dump())
         
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
@@ -285,11 +337,12 @@ async def get_daily_progress(date_str: str):
         # Get tasks (this will create them if they don't exist)
         await get_daily_tasks(date_str)
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
-    
+
+    tasks = [t for t in tasks if not t.get("skipped", False)]
     total = len(tasks)
     completed = sum(1 for t in tasks if t.get("completed", False))
     percentage = round((completed / total * 100) if total > 0 else 0)
-    
+
     return {
         "date": date_str,
         "total": total,
@@ -308,7 +361,8 @@ async def get_monthly_progress(year: int, month: int):
     for day in range(1, num_days + 1):
         date_str = f"{year:04d}-{month:02d}-{day:02d}"
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
-        
+        tasks = [t for t in tasks if not t.get("skipped", False)]
+
         if tasks:
             total = len(tasks)
             completed = sum(1 for t in tasks if t.get("completed", False))
@@ -355,7 +409,8 @@ async def get_weekly_summary(date_str: str, week_starts_monday: bool = True):
         day_date = week_start + timedelta(days=i)
         day_str = day_date.strftime("%Y-%m-%d")
         tasks = await db.daily_tasks.find({"date": day_str}).to_list(100)
-        
+        tasks = [t for t in tasks if not t.get("skipped", False)]
+
         if tasks:
             total = len(tasks)
             completed = sum(1 for t in tasks if t.get("completed", False))
@@ -415,6 +470,7 @@ async def get_history(days: int = 7):
         date_str = d.isoformat()
 
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(None)
+        tasks = [t for t in tasks if not t.get("skipped", False)]
         total = len(tasks)
         done  = sum(1 for t in tasks if t.get("completed", False))
         pct   = round((done / total * 100), 1) if total > 0 else 0.0
@@ -439,6 +495,7 @@ async def get_streak():
         date_str = d.isoformat()
 
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(None)
+        tasks = [t for t in tasks if not t.get("skipped", False)]
         if not tasks:
             continue
 
@@ -451,6 +508,55 @@ async def get_streak():
         streak += 1
 
     return {"streak": streak}
+
+
+@app.get("/api/export")
+async def export_data():
+    slots = await db.schedule_slots.find().sort("order_index", 1).to_list(1000)
+    tasks = await db.daily_tasks.find().sort("date", 1).to_list(1000000)
+
+    for doc in slots:
+        doc.pop("_id", None)
+    for doc in tasks:
+        doc.pop("_id", None)
+
+    return {
+        "exported_at": datetime.utcnow().isoformat(),
+        "schedule_slots": slots,
+        "daily_tasks": tasks,
+    }
+
+
+@app.post("/api/import")
+async def import_data(payload: ImportData):
+    """Restore schedule_slots and daily_tasks from a previously exported backup.
+    This replaces all current data (matches the 'restore after reset' use case)."""
+    slots = payload.schedule_slots
+    tasks = payload.daily_tasks
+
+    for s in slots:
+        if not all(k in s for k in ("id", "label", "start_time", "end_time", "order_index")):
+            raise HTTPException(status_code=400, detail="Invalid schedule_slots entry in backup file")
+    for t in tasks:
+        if not all(k in t for k in ("id", "date", "slot_id")):
+            raise HTTPException(status_code=400, detail="Invalid daily_tasks entry in backup file")
+
+    await db.schedule_slots.delete_many({})
+    await db.daily_tasks.delete_many({})
+
+    if slots:
+        await db.schedule_slots.insert_many(slots)
+    if tasks:
+        await db.daily_tasks.insert_many(tasks)
+
+    # Backfill name/start_time/end_time/duration in case this is an older
+    # export taken before daily_tasks stored those fields directly.
+    await _backfill_daily_task_names(db)
+
+    return {
+        "schedule_slots_imported": len(slots),
+        "daily_tasks_imported": len(tasks),
+    }
 
 
 @app.delete("/api/reset")

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const DARK = {
@@ -34,43 +35,45 @@ export const LIGHT = {
 };
 
 export type ThemeTokens = typeof DARK;
+export type ThemeMode = "light" | "dark" | "system";
 
 interface SimpleThemeContextType {
   isDark: boolean;
   T: ThemeTokens;
-  toggleTheme: () => void;
+  themeMode: ThemeMode;
+  setThemeMode: (mode: ThemeMode) => void;
 }
 
 const SimpleThemeContext = createContext<SimpleThemeContextType | undefined>(undefined);
 const STORAGE_KEY = "momentumThemeMode";
 
 export function SimpleThemeProvider({ children }: { children: ReactNode }) {
-  const [isDark, setIsDark] = useState(true);
+  const systemScheme = useColorScheme();
+  const [themeMode, setThemeModeState] = useState<ThemeMode>("dark");
 
   useEffect(() => {
     (async () => {
       try {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (stored === "light") setIsDark(false);
-        else if (stored === "dark") setIsDark(true);
+        if (stored === "light" || stored === "dark" || stored === "system") {
+          setThemeModeState(stored);
+        }
       } catch (e) {
         console.error(e);
       }
     })();
   }, []);
 
-  const toggleTheme = useCallback(() => {
-    setIsDark(prev => {
-      const next = !prev;
-      AsyncStorage.setItem(STORAGE_KEY, next ? "dark" : "light").catch(() => {});
-      return next;
-    });
+  const setThemeMode = useCallback((mode: ThemeMode) => {
+    setThemeModeState(mode);
+    AsyncStorage.setItem(STORAGE_KEY, mode).catch(() => {});
   }, []);
 
+  const isDark = themeMode === "system" ? systemScheme !== "light" : themeMode === "dark";
   const T = isDark ? DARK : LIGHT;
 
   return (
-    <SimpleThemeContext.Provider value={{ isDark, T, toggleTheme }}>
+    <SimpleThemeContext.Provider value={{ isDark, T, themeMode, setThemeMode }}>
       {children}
     </SimpleThemeContext.Provider>
   );

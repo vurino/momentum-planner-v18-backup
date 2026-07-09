@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
+import ConfirmModal from "../../components/ConfirmModal";
 
 const BASE = "";
 const SCROLL_ID = "routine-scroll";
@@ -25,31 +26,50 @@ interface Slot {
   end_time: string;
   order_index: number;
   days: string[];
+  notes?: string | null;
 }
 
-const RECURRENCE_OPTIONS: { key: string; label: string; days: string[] }[] = [
-  { key: "daily",    label: "Every day", days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] },
-  { key: "weekdays", label: "Weekdays",  days: ["mon", "tue", "wed", "thu", "fri"] },
-  { key: "weekends", label: "Weekends",  days: ["sat", "sun"] },
+const ALL_DAYS: { key: string; label: string; full: string }[] = [
+  { key: "mon", label: "M", full: "Mon" },
+  { key: "tue", label: "T", full: "Tue" },
+  { key: "wed", label: "W", full: "Wed" },
+  { key: "thu", label: "T", full: "Thu" },
+  { key: "fri", label: "F", full: "Fri" },
+  { key: "sat", label: "S", full: "Sat" },
+  { key: "sun", label: "S", full: "Sun" },
+];
+const DAY_ORDER = ALL_DAYS.map(d => d.key);
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri"];
+const WEEKENDS = ["sat", "sun"];
+const EVERY_DAY = DAY_ORDER;
+
+const PRESETS: { key: string; label: string; days: string[] }[] = [
+  { key: "daily",    label: "Every day", days: EVERY_DAY },
+  { key: "weekdays", label: "Weekdays",  days: WEEKDAYS },
+  { key: "weekends", label: "Weekends",  days: WEEKENDS },
 ];
 
 const FILTER_OPTIONS: { key: string; label: string }[] = [
   { key: "all", label: "All" },
-  ...RECURRENCE_OPTIONS,
+  ...PRESETS,
 ];
 
 function daysToRecurrenceKey(days: string[] | undefined): string {
   const set = new Set(days ?? []);
-  const weekdays = ["mon", "tue", "wed", "thu", "fri"];
-  const weekends = ["sat", "sun"];
-  if (set.size === 5 && weekdays.every(d => set.has(d))) return "weekdays";
-  if (set.size === 2 && weekends.every(d => set.has(d))) return "weekends";
-  return "daily";
+  if (set.size === 7 && EVERY_DAY.every(d => set.has(d))) return "daily";
+  if (set.size === 5 && WEEKDAYS.every(d => set.has(d))) return "weekdays";
+  if (set.size === 2 && WEEKENDS.every(d => set.has(d))) return "weekends";
+  return "custom";
 }
 
 function recurrenceLabel(days: string[] | undefined): string {
   const key = daysToRecurrenceKey(days);
-  return RECURRENCE_OPTIONS.find(o => o.key === key)?.label ?? "Every day";
+  const preset = PRESETS.find(o => o.key === key);
+  if (preset) return preset.label;
+  const set = new Set(days ?? []);
+  const shortMap: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+  const list = DAY_ORDER.filter(d => set.has(d)).map(d => shortMap[d]);
+  return list.length ? list.join(", ") : "No days";
 }
 
 function diffMinutes(start: string, end: string) {
@@ -77,8 +97,101 @@ function formatDur(min: number) {
   return `${min} min`;
 }
 
+function timesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  const toMin = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const aS = toMin(aStart);
+  let aE = toMin(aEnd);
+  const bS = toMin(bStart);
+  let bE = toMin(bEnd);
+  if (aE <= aS) aE += 24 * 60;
+  if (bE <= bS) bE += 24 * 60;
+  return aS < bE && bS < aE;
+}
+
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const CHIP_STEP = 46;
+
+function TimePicker({
+  value, onChange, T,
+}: {
+  value: string; onChange: (v: string) => void; T: ThemeTokens;
+}) {
+  const [h, m] = value.split(":").map(Number);
+  const hour = Number.isFinite(h) ? h : 9;
+  const minute = Number.isFinite(m) ? m : 0;
+
+  const hourScrollRef = useRef<ScrollView>(null);
+  const minuteScrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    hourScrollRef.current?.scrollTo({ x: Math.max(0, hour - 2) * CHIP_STEP, animated: false });
+    const closestIdx = MINUTES.reduce((best, val, i) =>
+      Math.abs(val - minute) < Math.abs(MINUTES[best] - minute) ? i : best, 0);
+    minuteScrollRef.current?.scrollTo({ x: Math.max(0, closestIdx - 2) * CHIP_STEP, animated: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setHour = (nh: number) => onChange(`${String(nh).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+  const setMinute = (nm: number) => onChange(`${String(hour).padStart(2, "0")}:${String(nm).padStart(2, "0")}`);
+
+  return (
+    <View>
+      <Text style={[tp.bigTime, { color: T.t1 }]}>
+        {String(hour).padStart(2, "0")}:{String(minute).padStart(2, "0")}
+      </Text>
+
+      <Text style={[tp.subLabel, { color: T.t2 }]}>Hour</Text>
+      <ScrollView
+        ref={hourScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={tp.chipRow}
+      >
+        {HOURS.map(hv => {
+          const active = hv === hour;
+          return (
+            <TouchableOpacity
+              key={hv}
+              style={[tp.chip, { borderColor: T.border }, active && { backgroundColor: T.orange, borderColor: T.orange }]}
+              onPress={() => setHour(hv)}
+            >
+              <Text style={[tp.chipText, { color: active ? "#fff" : T.t2 }]}>{String(hv).padStart(2, "0")}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      <Text style={[tp.subLabel, { color: T.t2, marginTop: 12 }]}>Minute</Text>
+      <ScrollView
+        ref={minuteScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={tp.chipRow}
+      >
+        {MINUTES.map(mv => {
+          const active = mv === minute;
+          return (
+            <TouchableOpacity
+              key={mv}
+              style={[tp.chip, { borderColor: T.border }, active && { backgroundColor: T.orange, borderColor: T.orange }]}
+              onPress={() => setMinute(mv)}
+            >
+              <Text style={[tp.chipText, { color: active ? "#fff" : T.t2 }]}>{String(mv).padStart(2, "0")}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 function SlotModal({
   slot,
+  allSlots,
   onClose,
   onSave,
   onDelete,
@@ -86,6 +199,7 @@ function SlotModal({
   T,
 }: {
   slot: Partial<Slot> | null;
+  allSlots: Slot[];
   onClose: () => void;
   onSave: (data: Partial<Slot>) => void;
   onDelete?: (id: string) => void;
@@ -97,17 +211,32 @@ function SlotModal({
   const [time, setTime] = useState(slot?.start_time ?? "09:00");
   const initialDuration = slot?.start_time && slot?.end_time ? diffMinutes(slot.start_time, slot.end_time) : 30;
   const [duration, setDuration] = useState(String(initialDuration));
-  const [recurrence, setRecurrence] = useState(daysToRecurrenceKey(slot?.days));
+  const [selectedDays, setSelectedDays] = useState<string[]>(slot?.days ?? EVERY_DAY);
+  const [notes, setNotes] = useState(slot?.notes ?? "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const toggleDay = (key: string) => {
+    setSelectedDays(prev => prev.includes(key) ? prev.filter(d => d !== key) : [...prev, key]);
+  };
+
+  const draftEnd = calcEndTime(time, parseInt(duration, 10) || 30);
+  const conflicts = allSlots.filter(s =>
+    s.id !== slot?.id &&
+    s.days.some(d => selectedDays.includes(d)) &&
+    timesOverlap(time, draftEnd, s.start_time, s.end_time)
+  );
 
   const handleSave = () => {
     if (!label.trim()) {
       Alert.alert("Name required");
       return;
     }
+    if (selectedDays.length === 0) {
+      Alert.alert("Select at least one day");
+      return;
+    }
 
     const dur = parseInt(duration, 10) || 30;
-    const days = RECURRENCE_OPTIONS.find(o => o.key === recurrence)?.days
-      ?? RECURRENCE_OPTIONS[0].days;
 
     onSave({
       id: slot?.id,
@@ -115,26 +244,32 @@ function SlotModal({
       start_time: time,
       end_time: calcEndTime(time, dur),
       order_index: slot?.order_index ?? totalSlots,
-      days,
+      days: selectedDays,
+      notes: notes.trim() || undefined,
     });
   };
 
   const handleDelete = () => {
     if (!slot?.id) return;
+    setConfirmDelete(true);
+  };
 
-    Alert.alert("Delete activity?", "This cannot be undone.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => onDelete?.(slot.id!) },
-    ]);
+  const confirmDeleteNow = () => {
+    setConfirmDelete(false);
+    if (slot?.id) onDelete?.(slot.id);
   };
 
   return (
     <View style={ms.overlay}>
+      <TouchableOpacity style={ms.backdrop} activeOpacity={1} onPress={onClose} />
       <KeyboardAvoidingView
         style={ms.sheetWrap}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={[ms.sheet, { backgroundColor: T.surface, borderColor: T.border }]}>
+        <ScrollView
+          style={[ms.sheet, { backgroundColor: T.surface, borderColor: T.border }]}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text style={[ms.sheetTitle, { color: T.t1 }]}>{isNew ? "Add activity" : "Edit activity"}</Text>
 
           <Text style={[ms.fieldLabel, { color: T.t2 }]}>Name</Text>
@@ -147,13 +282,7 @@ function SlotModal({
           />
 
           <Text style={[ms.fieldLabel, { color: T.t2 }]}>Time</Text>
-          <TextInput
-            style={[ms.input, { backgroundColor: T.bg, borderColor: T.border, color: T.t1 }]}
-            value={time}
-            onChangeText={setTime}
-            placeholder="09:00"
-            placeholderTextColor={T.t2}
-          />
+          <TimePicker value={time} onChange={setTime} T={T} />
 
           <Text style={[ms.fieldLabel, { color: T.t2 }]}>Duration (min)</Text>
           <TextInput
@@ -165,10 +294,18 @@ function SlotModal({
             placeholderTextColor={T.t2}
           />
 
+          {conflicts.length > 0 && (
+            <View style={[ms.warningBox, { backgroundColor: `${T.danger}22`, borderColor: T.danger }]}>
+              <Text style={[ms.warningText, { color: T.danger }]}>
+                ⚠ Overlaps with {conflicts.map(c => c.label).join(", ")}
+              </Text>
+            </View>
+          )}
+
           <Text style={[ms.fieldLabel, { color: T.t2 }]}>Repeat</Text>
           <View style={ms.recurrenceRow}>
-            {RECURRENCE_OPTIONS.map(opt => {
-              const active = recurrence === opt.key;
+            {PRESETS.map(opt => {
+              const active = daysToRecurrenceKey(selectedDays) === opt.key;
               return (
                 <TouchableOpacity
                   key={opt.key}
@@ -177,7 +314,7 @@ function SlotModal({
                     { borderColor: T.border },
                     active && { backgroundColor: T.orange, borderColor: T.orange },
                   ]}
-                  onPress={() => setRecurrence(opt.key)}
+                  onPress={() => setSelectedDays(opt.days)}
                 >
                   <Text style={[ms.recurrenceBtnText, { color: active ? "#fff" : T.t2 }]}>
                     {opt.label}
@@ -187,13 +324,36 @@ function SlotModal({
             })}
           </View>
 
-          <View style={ms.actions}>
-            {!isNew && (
-              <TouchableOpacity style={ms.deleteBtn} onPress={handleDelete}>
-                <Text style={[ms.deleteBtnText, { color: T.danger }]}>Delete</Text>
-              </TouchableOpacity>
-            )}
+          <View style={ms.dayPickerRow}>
+            {ALL_DAYS.map(d => {
+              const active = selectedDays.includes(d.key);
+              return (
+                <TouchableOpacity
+                  key={d.key}
+                  style={[
+                    ms.dayChip,
+                    { borderColor: T.border },
+                    active && { backgroundColor: T.orange, borderColor: T.orange },
+                  ]}
+                  onPress={() => toggleDay(d.key)}
+                >
+                  <Text style={[ms.dayChipText, { color: active ? "#fff" : T.t2 }]}>{d.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
+          <Text style={[ms.fieldLabel, { color: T.t2 }]}>Notes (optional)</Text>
+          <TextInput
+            style={[ms.input, ms.notesInput, { backgroundColor: T.bg, borderColor: T.border, color: T.t1 }]}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Add a note..."
+            placeholderTextColor={T.t2}
+            multiline
+          />
+
+          <View style={ms.actionsRow}>
             <TouchableOpacity style={[ms.cancelBtn, { backgroundColor: T.border }]} onPress={onClose}>
               <Text style={[ms.cancelBtnText, { color: T.t2 }]}>Cancel</Text>
             </TouchableOpacity>
@@ -202,8 +362,26 @@ function SlotModal({
               <Text style={ms.saveBtnText}>Save</Text>
             </TouchableOpacity>
           </View>
-        </View>
+
+          {!isNew && (
+            <TouchableOpacity style={ms.deleteBtnFull} onPress={handleDelete}>
+              <Text style={[ms.deleteBtnText, { color: T.danger }]}>Delete activity</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={{ height: 12 }} />
+        </ScrollView>
       </KeyboardAvoidingView>
+
+      <ConfirmModal
+        visible={confirmDelete}
+        title="Delete activity?"
+        message="This cannot be undone."
+        confirmLabel="Delete"
+        T={T}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={confirmDeleteNow}
+      />
     </View>
   );
 }
@@ -268,7 +446,8 @@ export default function RoutineScreen() {
         start_time: data.start_time,
         end_time: data.end_time,
         order_index: data.order_index ?? slots.length,
-        days: data.days ?? ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        days: data.days ?? EVERY_DAY,
+        notes: data.notes ?? null,
       };
 
       const res = await fetch(
@@ -377,7 +556,10 @@ export default function RoutineScreen() {
               onPress={() => openEdit(slot)}
             >
               <View style={s.itemInfo}>
-                <Text style={[s.itemName, { color: T.t1 }]}>{slot.label}</Text>
+                <View style={s.itemNameRow}>
+                  <Text style={[s.itemName, { color: T.t1 }]}>{slot.label}</Text>
+                  {!!slot.notes && <View style={[s.noteDot, { backgroundColor: T.orange }]} />}
+                </View>
                 <Text style={[s.itemMeta, { color: T.t2 }]}>
                   {slot.start_time} · {formatDur(duration)}
                 </Text>
@@ -399,6 +581,7 @@ export default function RoutineScreen() {
       {modalOpen && (
         <SlotModal
           slot={editing}
+          allSlots={slots}
           onClose={closeModal}
           onSave={saveSlot}
           onDelete={deleteSlot}
@@ -431,7 +614,9 @@ const s = StyleSheet.create({
   emptyDesc: { fontFamily: "Montserrat_500Medium", fontSize: 13, textAlign: "center", lineHeight: 20 },
   item: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6 },
   itemInfo: { flex: 1 },
+  itemNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   itemName: { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
+  noteDot: { width: 5, height: 5, borderRadius: 99 },
   itemMeta: { fontFamily: "Montserrat_500Medium", fontSize: 11, marginTop: 3 },
   badge: { borderWidth: 1, borderRadius: 99, paddingVertical: 4, paddingHorizontal: 10 },
   badgeText: { fontFamily: "Montserrat_600SemiBold", fontSize: 10 },
@@ -441,20 +626,35 @@ const s = StyleSheet.create({
 });
 
 const ms = StyleSheet.create({
-  overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "flex-end", zIndex: 999, elevation: 999 },
-  sheetWrap: { justifyContent: "flex-end" },
+  overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.75)", zIndex: 999, elevation: 999 },
+  backdrop: { flex: 1 },
+  sheetWrap: { maxHeight: "88%" },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderTopWidth: 1 },
   sheetTitle: { fontFamily: "Montserrat_700Bold", fontSize: 18, marginBottom: 20 },
   fieldLabel: { fontFamily: "Montserrat_600SemiBold", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8, marginTop: 14 },
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "Montserrat_500Medium", fontSize: 14 },
+  notesInput: { height: 70, textAlignVertical: "top" },
+  warningBox: { borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 10 },
+  warningText: { fontFamily: "Montserrat_600SemiBold", fontSize: 11 },
   recurrenceRow: { flexDirection: "row", gap: 8 },
   recurrenceBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
   recurrenceBtnText: { fontFamily: "Montserrat_600SemiBold", fontSize: 12 },
-  actions: { flexDirection: "row", gap: 8, marginTop: 24 },
-  deleteBtn: { paddingHorizontal: 14, paddingVertical: 13, borderRadius: 10, borderWidth: 1, borderColor: "rgba(192,64,64,0.4)", alignItems: "center" },
-  deleteBtnText: { fontFamily: "Montserrat_700Bold", fontSize: 11 },
+  dayPickerRow: { flexDirection: "row", gap: 6, marginTop: 10 },
+  dayChip: { flex: 1, aspectRatio: 1, borderWidth: 1, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  dayChipText: { fontFamily: "Montserrat_700Bold", fontSize: 12 },
+  actionsRow: { flexDirection: "row", gap: 8, marginTop: 24 },
   cancelBtn: { flex: 1, borderRadius: 10, padding: 13, alignItems: "center" },
   cancelBtnText: { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
   saveBtn: { flex: 1, borderRadius: 10, padding: 13, alignItems: "center" },
   saveBtnText: { fontFamily: "Montserrat_700Bold", fontSize: 13, color: "#fff" },
+  deleteBtnFull: { marginTop: 10, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(192,64,64,0.4)", alignItems: "center" },
+  deleteBtnText: { fontFamily: "Montserrat_700Bold", fontSize: 12, letterSpacing: 0.5 },
+});
+
+const tp = StyleSheet.create({
+  bigTime: { fontFamily: "Montserrat_700Bold", fontSize: 32, textAlign: "center", marginBottom: 10, letterSpacing: 1 },
+  subLabel: { fontFamily: "Montserrat_600SemiBold", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 },
+  chipRow: { flexDirection: "row", gap: 6, paddingRight: 4 },
+  chip: { minWidth: 40, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10, alignItems: "center" },
+  chipText: { fontFamily: "Montserrat_700Bold", fontSize: 13 },
 });

@@ -12,8 +12,17 @@ DAY_MAP = {
     0: "mon", 1: "tue", 2: "wed",
     3: "thu", 4: "fri", 5: "sat", 6: "sun",
 }
- 
- 
+
+
+def _duration_minutes(start_time: str, end_time: str) -> int:
+    sh, sm = map(int, start_time.split(":"))
+    eh, em = map(int, end_time.split(":"))
+    mins = (eh * 60 + em) - (sh * 60 + sm)
+    if mins <= 0:
+        mins += 24 * 60
+    return mins
+
+
 async def generate_tasks_for_date(mongo_db, target_date: date) -> int:
     weekday_key = DAY_MAP[target_date.weekday()]
     date_str = target_date.isoformat()
@@ -40,7 +49,12 @@ async def generate_tasks_for_date(mongo_db, target_date: date) -> int:
                 "date": date_str,
                 "slot_id": slot["id"],
                 "completed": False,
+                "skipped": False,
                 "notes": None,
+                "name": slot.get("label"),
+                "start_time": slot.get("start_time"),
+                "end_time": slot.get("end_time"),
+                "duration": _duration_minutes(slot["start_time"], slot["end_time"]),
             }
             await mongo_db.daily_tasks.insert_one(task)
             created += 1
@@ -72,4 +86,3 @@ def stop_scheduler():
     if _scheduler.running:
         _scheduler.shutdown(wait=False)
         logger.info("[Scheduler] Stopped")
- 

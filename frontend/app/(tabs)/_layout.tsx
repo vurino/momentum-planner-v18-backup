@@ -32,7 +32,7 @@ export default function TabsLayout() {
           paddingTop: 8,
         },
         tabBarActiveTintColor: T.orangeHi,
-        tabBarInactiveTintColor: T.t3,
+        tabBarInactiveTintColor: T.t2,
         tabBarLabelStyle: {
           fontFamily: "Montserrat_600SemiBold",
           fontSize: 10,
