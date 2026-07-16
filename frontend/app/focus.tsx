@@ -8,9 +8,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme, SPACING, RADIUS, FONT } from '../context/ThemeContext';
- 
+
 const { width: SW } = Dimensions.get('window');
- 
+const BASE = "";
+
 const iconMap: Record<string, string> = {
   'restaurant': 'restaurant-outline', 'sunny': 'sunny-outline', 'briefcase': 'briefcase-outline',
   'cafe': 'cafe-outline', 'trending-up': 'trending-up-outline', 'book': 'book-outline',
@@ -28,14 +29,14 @@ const getIcon = (name: string): keyof typeof Ionicons.glyphMap => {
   if (name.endsWith('-outline')) return name as keyof typeof Ionicons.glyphMap;
   return (name + '-outline') as keyof typeof Ionicons.glyphMap;
 };
- 
+
 const parseTimeToDate = (t: string): Date => {
   const [h, m] = t.split(':').map(Number);
   const d = new Date();
   d.setHours(h, m, 0, 0);
   return d;
 };
- 
+
 const formatRemaining = (ms: number) => {
   if (ms <= 0) return { hours: 0, minutes: 0, seconds: 0 };
   const total = Math.floor(ms / 1000);
@@ -45,33 +46,56 @@ const formatRemaining = (ms: number) => {
     seconds: total % 60,
   };
 };
- 
+
 const pad = (n: number) => n.toString().padStart(2, '0');
- 
+
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+type Outcome = 'none' | 'completed' | 'stopped' | 'skipped';
+
 export default function FocusScreen() {
   const { isDark, colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams();
- 
+
+  const taskId    = params.id as string | undefined;
+  const taskDate  = params.date as string | undefined;
   const label     = (params.label as string)      || 'Focus Time';
   const icon      = (params.icon as string)       || 'time';
   const startTime = (params.start_time as string) || '09:00';
   const endTime   = (params.end_time as string)   || '10:00';
- 
+
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [isActive, setIsActive] = useState(true);
- 
+  const [outcome, setOutcome] = useState<Outcome>('none');
+
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const glowAnim  = useRef(new Animated.Value(0.3)).current;
- 
+
+  const patchTask = useCallback(async (body: Record<string, unknown>) => {
+    if (!taskId) return;
+    try {
+      await fetch(`${BASE}/api/daily-tasks/${taskId}?client_today=${localToday()}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }, [taskId]);
+
   useEffect(() => {
     const endDate = parseTimeToDate(endTime);
     const diff = endDate.getTime() - Date.now();
     setTimeRemaining(Math.max(0, diff));
     setIsActive(diff > 0);
   }, [endTime]);
- 
+
   useEffect(() => {
     if (!isActive) return;
     const interval = setInterval(() => {
@@ -83,7 +107,38 @@ export default function FocusScreen() {
     }, 1000);
     return () => clearInterval(interval);
   }, [isActive]);
- 
+
+  // When the timer runs out with no explicit action taken, resolve the task
+  // honestly: completed stays completed, a started-but-unfinished task becomes
+  // stopped, and an untouched one becomes skipped.
+  useEffect(() => {
+    if (isActive || outcome !== 'none' || !taskId || !taskDate) return;
+    (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/daily-tasks/${taskDate}`);
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data.tasks ?? [];
+        const current = list.find((t: any) => t.id === taskId);
+        if (!current) return;
+        if (current.completed) {
+          setOutcome('completed');
+        } else if (current.stopped) {
+          setOutcome('stopped');
+        } else if (current.skipped) {
+          setOutcome('skipped');
+        } else if (current.started_at) {
+          await patchTask({ stopped: true, stopped_at: new Date().toISOString() });
+          setOutcome('stopped');
+        } else {
+          await patchTask({ skipped: true, auto_skipped: true });
+          setOutcome('skipped');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, [isActive, outcome, taskId, taskDate, patchTask]);
+
   useEffect(() => {
     if (!isActive) return;
     const pulse = Animated.loop(Animated.sequence([
@@ -98,15 +153,33 @@ export default function FocusScreen() {
     glow.start();
     return () => { pulse.stop(); glow.stop(); };
   }, [isActive]);
- 
+
   const { hours, minutes, seconds } = formatRemaining(timeRemaining);
   const totalDuration = parseTimeToDate(endTime).getTime() - parseTimeToDate(startTime).getTime();
   const progressPct = isActive && totalDuration > 0
     ? Math.max(0, Math.min(1, timeRemaining / totalDuration))
     : 0;
- 
+
   const handleClose = useCallback(() => router.back(), [router]);
- 
+
+  const handleComplete = useCallback(async () => {
+    await patchTask({
+      completed: true,
+      completed_at: new Date().toISOString(),
+      skipped: false,
+      stopped: false,
+      auto_skipped: false,
+    });
+    setOutcome('completed');
+    setIsActive(false);
+  }, [patchTask]);
+
+  const handleStop = useCallback(async () => {
+    await patchTask({ stopped: true, stopped_at: new Date().toISOString() });
+    setOutcome('stopped');
+    setIsActive(false);
+  }, [patchTask]);
+
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="light-content" />
@@ -118,7 +191,7 @@ export default function FocusScreen() {
         paddingTop: insets.top + SPACING.lg,
         paddingBottom: insets.bottom + SPACING.lg,
       }]}>
- 
+
         <View style={styles.iconSection}>
           <Animated.View style={[styles.iconRing, {
             transform: [{ scale: pulseAnim }],
@@ -133,12 +206,12 @@ export default function FocusScreen() {
             </View>
           </Animated.View>
         </View>
- 
+
         <Text style={styles.taskLabel}>{label}</Text>
         <Text style={[styles.timeRange, { color: '#7080a0' }]}>
           {startTime} — {endTime}
         </Text>
- 
+
         <View style={styles.timerSection}>
           {isActive ? (
             <>
@@ -164,14 +237,30 @@ export default function FocusScreen() {
                 </View>
               </View>
             </>
-          ) : (
+          ) : outcome === 'completed' ? (
             <View style={styles.completedWrap}>
               <Ionicons name="checkmark-circle" size={64} color={colors.done} />
               <Text style={[styles.completedText, { color: colors.done }]}>Task Complete!</Text>
             </View>
+          ) : outcome === 'stopped' ? (
+            <View style={styles.completedWrap}>
+              <Ionicons name="pause-circle-outline" size={64} color={colors.accent} />
+              <Text style={[styles.completedText, { color: colors.accent }]}>Stopped</Text>
+              <Text style={[styles.outcomeSub, { color: '#7080a0' }]}>
+                Attempted but not finished
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.completedWrap}>
+              <Ionicons name="time-outline" size={64} color="#7080a0" />
+              <Text style={[styles.completedText, { color: '#a0b0c4' }]}>Time's up</Text>
+              <Text style={[styles.outcomeSub, { color: '#7080a0' }]}>
+                Not marked done — counted as skipped
+              </Text>
+            </View>
           )}
         </View>
- 
+
         {isActive && (
           <View style={styles.progressWrap}>
             <View style={[styles.progressTrack, { backgroundColor: '#1a2030' }]}>
@@ -182,21 +271,38 @@ export default function FocusScreen() {
             </View>
           </View>
         )}
- 
+
         <View style={{ flex: 1 }} />
- 
+
+        {isActive && taskId && (
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.accent }]}
+              onPress={handleComplete}
+            >
+              <Text style={styles.actionBtnText}>Complete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.stopBtn]}
+              onPress={handleStop}
+            >
+              <Text style={[styles.actionBtnText, { color: '#c05a5a' }]}>Stop</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <TouchableOpacity
           style={[styles.exitBtn, { backgroundColor: '#1a2030' }]}
           onPress={handleClose}
         >
           <Text style={[styles.exitText, { color: '#5a6880' }]}>Exit Focus Mode</Text>
         </TouchableOpacity>
- 
+
       </View>
     </View>
   );
 }
- 
+
 const styles = StyleSheet.create({
   screen:  { flex: 1 },
   content: { flex: 1, paddingHorizontal: SPACING.xl, alignItems: 'center' },
@@ -214,10 +320,14 @@ const styles = StyleSheet.create({
   timerSep:     { fontSize: 40, fontWeight: '200', marginHorizontal: 4, marginBottom: 14 },
   completedWrap: { alignItems: 'center', gap: SPACING.md },
   completedText: { fontSize: FONT.xl, fontWeight: '600' },
+  outcomeSub:    { fontSize: FONT.sm, fontWeight: '500', marginTop: -SPACING.sm },
   progressWrap:  { width: '80%', marginBottom: SPACING.xxl },
   progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
   progressFill:  { height: '100%', borderRadius: 2 },
+  actionRow:     { flexDirection: 'row', gap: SPACING.sm, width: '100%', marginBottom: SPACING.md },
+  actionBtn:     { flex: 1, alignItems: 'center', paddingVertical: SPACING.md, borderRadius: RADIUS.lg },
+  actionBtnText: { fontSize: FONT.sm, fontWeight: '700', color: '#fff', letterSpacing: 1, textTransform: 'uppercase' },
+  stopBtn:       { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: '#c05a5a' },
   exitBtn:  { width: '100%', alignItems: 'center', paddingVertical: SPACING.md, borderRadius: RADIUS.lg },
   exitText: { fontSize: FONT.sm, fontWeight: '500' },
 });
- 

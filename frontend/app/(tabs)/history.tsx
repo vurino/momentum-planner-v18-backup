@@ -4,6 +4,7 @@ import {
   ActivityIndicator, TouchableOpacity,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 
@@ -13,6 +14,8 @@ const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+
+type TaskStatus = "completed" | "stopped" | "skipped" | "pending";
 
 interface DayRecord {
   date: string;
@@ -27,6 +30,7 @@ interface DayProgress {
   total: number;
   completed: number;
   percentage: number;
+  tracked?: boolean;
 }
 
 interface DayTask {
@@ -34,12 +38,30 @@ interface DayTask {
   name: string;
   completed: boolean;
   skipped: boolean;
+  stopped?: boolean;
   start_time?: string;
   duration?: number;
 }
 
 function todayStr() {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function taskStatus(t: DayTask): TaskStatus {
+  if (t.completed) return "completed";
+  if (t.stopped) return "stopped";
+  if (t.skipped) return "skipped";
+  return "pending";
+}
+
+function statusConfig(status: TaskStatus, T: ThemeTokens) {
+  switch (status) {
+    case "completed": return { label: "Done", color: T.green };
+    case "stopped":   return { label: "Stopped", color: T.orangeHi };
+    case "skipped":   return { label: "Skipped", color: T.t3 };
+    default:          return { label: "Pending", color: T.t3 };
+  }
 }
 
 function formatDayLabel(dateStr: string) {
@@ -89,6 +111,45 @@ function StatCard({ value, label, valueColor, T }: { value: string; label: strin
   );
 }
 
+function StatusBadge({ status, T }: { status: TaskStatus; T: ThemeTokens }) {
+  const cfg = statusConfig(status, T);
+  return (
+    <View style={[dt.statusPill, { borderColor: cfg.color }]}>
+      <Text style={[dt.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+function EditPills({
+  current, onSet, T,
+}: {
+  current: TaskStatus;
+  onSet: (s: "completed" | "stopped" | "skipped") => void;
+  T: ThemeTokens;
+}) {
+  const options: { key: "completed" | "stopped" | "skipped"; label: string; color: string }[] = [
+    { key: "completed", label: "Done", color: T.green },
+    { key: "stopped", label: "Stopped", color: T.orangeHi },
+    { key: "skipped", label: "Skipped", color: T.t3 },
+  ];
+  return (
+    <View style={dt.pillRow}>
+      {options.map(opt => {
+        const active = current === opt.key;
+        return (
+          <TouchableOpacity
+            key={opt.key}
+            style={[dt.pill, { borderColor: opt.color }, active && { backgroundColor: opt.color }]}
+            onPress={() => onSet(opt.key)}
+          >
+            <Text style={[dt.pillText, { color: active ? "#fff" : opt.color }]}>{opt.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function HistoryScreen() {
   const { T } = useSimpleTheme();
   const [records, setRecords] = useState<DayRecord[]>([]);
@@ -98,15 +159,15 @@ export default function HistoryScreen() {
   const [calYear, setCalYear]   = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth() + 1);
   const [monthProgress, setMonthProgress] = useState<DayProgress[]>([]);
-  const [monthMap, setMonthMap] = useState<Record<string, DayProgress>>({});
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dayTasks, setDayTasks] = useState<DayTask[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const histRes = await fetch(`${BASE}/api/history?days=7`);
+      const histRes = await fetch(`${BASE}/api/history?days=7&today=${todayStr()}`);
       const histData = await histRes.json();
       setRecords(Array.isArray(histData) ? histData : histData.history ?? []);
     } catch (e) {
@@ -122,11 +183,24 @@ export default function HistoryScreen() {
       const data = await res.json();
       const list: DayProgress[] = Array.isArray(data) ? data : [];
       setMonthProgress(list);
-      const map: Record<string, DayProgress> = {};
-      list.forEach(d => { map[d.date] = d; });
-      setMonthMap(map);
     } catch (e) {
       console.error(e);
+    }
+  }, []);
+
+  const loadDayTasks = useCallback(async (dateStr: string) => {
+    setLoadingDetail(true);
+    try {
+      const res = await fetch(`${BASE}/api/daily-tasks/${dateStr}?client_today=${todayStr()}`);
+      const data = await res.json();
+      const list: DayTask[] = Array.isArray(data) ? data : [];
+      list.sort((a, b) => (a.start_time ?? "99:99").localeCompare(b.start_time ?? "99:99"));
+      setDayTasks(list);
+    } catch (e) {
+      console.error(e);
+      setDayTasks([]);
+    } finally {
+      setLoadingDetail(false);
     }
   }, []);
 
@@ -136,6 +210,7 @@ export default function HistoryScreen() {
     return () => {
       setSelectedDate(null);
       setDayTasks([]);
+      setEditMode(false);
     };
   }, [fetchData]));
 
@@ -155,13 +230,21 @@ export default function HistoryScreen() {
 
   const jumpToday = () => {
     const t = new Date();
-    setCalYear(t.getFullYear());
-    setCalMonth(t.getMonth() + 1);
+    const y = t.getFullYear();
+    const m = t.getMonth() + 1;
+    const d = t.getDate();
+    setCalYear(y);
+    setCalMonth(m);
+    const dateStr = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    setEditMode(false);
+    setSelectedDate(dateStr);
+    loadDayTasks(dateStr);
   };
 
   const closeDetail = () => {
     setSelectedDate(null);
     setDayTasks([]);
+    setEditMode(false);
   };
 
   const selectDate = async (day: number) => {
@@ -170,33 +253,28 @@ export default function HistoryScreen() {
       closeDetail();
       return;
     }
+    setEditMode(false);
     setSelectedDate(dateStr);
-    setLoadingDetail(true);
-    try {
-      const res = await fetch(`${BASE}/api/daily-tasks/${dateStr}`);
-      const data = await res.json();
-      setDayTasks(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error(e);
-      setDayTasks([]);
-    } finally {
-      setLoadingDetail(false);
-    }
+    await loadDayTasks(dateStr);
   };
 
-  const toggleDayTask = async (id: string, current: boolean) => {
-    setDayTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !current } : t));
+  const setTaskStatus = async (id: string, status: "completed" | "stopped" | "skipped") => {
+    const body = {
+      completed: status === "completed",
+      stopped: status === "stopped",
+      skipped: status === "skipped",
+    };
+    setDayTasks(prev => prev.map(t => t.id === id ? { ...t, ...body } : t));
     try {
-      await fetch(`${BASE}/api/daily-tasks/${id}`, {
+      await fetch(`${BASE}/api/daily-tasks/${id}?client_today=${todayStr()}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: !current }),
+        body: JSON.stringify(body),
       });
       fetchMonthProgress(calYear, calMonth);
       fetchData();
     } catch (e) {
       console.error(e);
-      setDayTasks(prev => prev.map(t => t.id === id ? { ...t, completed: current } : t));
     }
   };
 
@@ -208,17 +286,17 @@ export default function HistoryScreen() {
     );
   }
 
-  const daysWithData = monthProgress.filter(d => d.total > 0);
+  const daysWithData = monthProgress.filter(d => d.total > 0 && d.tracked !== false);
   const monthAvg = daysWithData.length
     ? Math.round(daysWithData.reduce((a, d) => a + d.percentage, 0) / daysWithData.length)
     : 0;
   const monthPerfect = daysWithData.filter(d => d.percentage >= 100).length;
-  const monthStreak = longestPerfectStreak(monthProgress);
+  const monthStreak = longestPerfectStreak(daysWithData);
 
   const hasRecentData = records.some(r => r.total > 0);
-  const activeDayTasks = dayTasks.filter(t => !t.skipped);
-  const skippedDayTasks = dayTasks.filter(t => t.skipped);
-  const dayDone = activeDayTasks.filter(t => t.completed).length;
+  const dayDone = dayTasks.filter(t => t.completed).length;
+  const isFutureSelected = !!selectedDate && selectedDate > todayStr();
+  const canEditSelected = !!selectedDate && !isFutureSelected;
 
   return (
     <View style={[s.screen, { backgroundColor: T.bg }]}>
@@ -235,8 +313,8 @@ export default function HistoryScreen() {
 
         {/* Month stats */}
         <View style={s.statsRow}>
-          <StatCard value={`${monthAvg}%`}       label="Avg"     valueColor={T.orange} T={T} />
-          <StatCard value={String(monthPerfect)} label="Perfect" valueColor={T.green}  T={T} />
+          <StatCard value={`${monthAvg}%`}       label="Avg"     valueColor={T.orange}   T={T} />
+          <StatCard value={String(monthPerfect)} label="Perfect" valueColor={T.orangeHi} T={T} />
           <StatCard value={`${monthStreak}d`}    label="Best streak" valueColor={T.orange} T={T} />
         </View>
 
@@ -264,27 +342,15 @@ export default function HistoryScreen() {
                 key={rec.date}
                 style={[s.dayRow, i < records.length - 1 && { borderBottomWidth: 1, borderBottomColor: T.border }]}
               >
-                <View style={s.dayTop}>
-                  <Text style={[s.dayName, { color: T.t1 }]}>{formatDayLabel(rec.date)}</Text>
-                  <View style={s.dayRight}>
-                    <Text style={[s.dayCount, { color: T.t2 }]}>{rec.done} / {rec.total}</Text>
-                    <Text style={[
-                      s.dayPct,
-                      { color: rec.pct >= 100 ? T.green : T.orange },
-                    ]}>
-                      {Math.round(rec.pct)}%
-                    </Text>
-                  </View>
-                </View>
-                <View style={[s.barTrack, { backgroundColor: T.border }]}>
-                  <LinearGradient
-                    colors={rec.pct >= 100
-                      ? ["#0e4a30", T.green]
-                      : ["#7a2f15", T.orangeHi]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[s.barFill, { width: `${Math.min(rec.pct, 100)}%` as any }]}
-                  />
+                <Text style={[s.dayName, { color: T.t1 }]}>{formatDayLabel(rec.date)}</Text>
+                <View style={s.dayRight}>
+                  <Text style={[s.dayCount, { color: T.t2 }]}>{rec.done} / {rec.total}</Text>
+                  <Text style={[
+                    s.dayPct,
+                    { color: rec.pct >= 100 ? T.green : T.orange },
+                  ]}>
+                    {Math.round(rec.pct)}%
+                  </Text>
                 </View>
               </View>
             ))}
@@ -329,9 +395,6 @@ export default function HistoryScreen() {
                 const dateStr = `${calYear}-${String(calMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                 const isSelected = selectedDate === dateStr;
                 const isToday = dateStr === todayStr();
-                const prog = monthMap[dateStr];
-                const hasProg = !!prog && prog.total > 0;
-                const barColor = hasProg ? (prog.percentage >= 100 ? T.green : T.orange) : "transparent";
 
                 return (
                   <View key={di} style={s.calCell}>
@@ -344,7 +407,6 @@ export default function HistoryScreen() {
                       onPress={() => selectDate(day)}
                     >
                       <Text style={[s.calDayText, { color: T.t1 }]}>{day}</Text>
-                      <View style={[s.calDayBar, { backgroundColor: barColor, opacity: 0.3 }]} />
                     </TouchableOpacity>
                   </View>
                 );
@@ -354,58 +416,73 @@ export default function HistoryScreen() {
 
           {selectedDate && (
             <View style={[s.calDetail, { backgroundColor: T.surface, borderColor: T.border }]}>
-              <Text style={[s.calDetailDate, { color: T.t1 }]}>
-                {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-US", {
-                  weekday: "long", month: "long", day: "numeric",
-                })}
-              </Text>
+              <View style={s.calDetailHeader}>
+                <Text style={[s.calDetailDate, { color: T.t1 }]}>
+                  {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-US", {
+                    weekday: "long", month: "long", day: "numeric",
+                  })}
+                </Text>
+                {canEditSelected && dayTasks.length > 0 && (
+                  <TouchableOpacity
+                    style={[s.editBtn, { borderColor: editMode ? T.orange : T.border }]}
+                    onPress={() => setEditMode(v => !v)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name={editMode ? "checkmark" : "pencil"} size={13} color={editMode ? T.orange : T.t2} />
+                    <Text style={[s.editBtnText, { color: editMode ? T.orange : T.t2 }]}>
+                      {editMode ? "Done" : "Edit"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
               {loadingDetail ? (
                 <ActivityIndicator color={T.orange} />
-              ) : activeDayTasks.length === 0 && skippedDayTasks.length === 0 ? (
+              ) : dayTasks.length === 0 ? (
                 <Text style={[s.calDetailCount, { color: T.t2 }]}>No tasks for this date</Text>
               ) : (
                 <>
                   <Text style={[s.calDetailCount, { color: T.t2, marginBottom: 10 }]}>
-                    {dayDone} / {activeDayTasks.length} done
+                    {dayDone} / {dayTasks.length} done
                   </Text>
-                  {activeDayTasks.map((task, i) => (
-                    <TouchableOpacity
-                      key={task.id}
-                      style={[
-                        s.dayTaskRow,
-                        i < activeDayTasks.length - 1 && { borderBottomWidth: 1, borderBottomColor: T.border },
-                      ]}
-                      onPress={() => toggleDayTask(task.id, task.completed)}
-                    >
-                      <View style={[
-                        s.dayCheckbox,
-                        { borderColor: T.border },
-                        task.completed && { borderColor: T.t2, backgroundColor: T.checkedOverlay },
-                      ]}>
-                        {task.completed && <Text style={[s.dayCheckmark, { color: T.t1 }]}>✓</Text>}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[
-                          s.dayTaskName,
-                          { color: T.t1 },
-                          task.completed && { color: T.t3, textDecorationLine: "line-through" },
-                        ]}>
-                          {task.name}
-                        </Text>
-                        {!!task.start_time && (
-                          <Text style={[s.dayTaskMeta, { color: T.t2 }, task.completed && { color: T.t3 }]}>
-                            {task.start_time}
-                          </Text>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                  {skippedDayTasks.length > 0 && (
-                    <Text style={[s.skippedNote, { color: T.t3 }]}>
-                      Skipped: {skippedDayTasks.map(t => t.name).join(", ")}
+                  {isFutureSelected && (
+                    <Text style={[s.futureNote, { color: T.t3 }]}>
+                      This date hasn't happened yet — status can't be set.
                     </Text>
                   )}
+                  {dayTasks.map((task, i) => {
+                    const status = taskStatus(task);
+                    return (
+                      <View
+                        key={task.id}
+                        style={[
+                          dt.taskRow,
+                          i < dayTasks.length - 1 && { borderBottomWidth: 1, borderBottomColor: T.border },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[
+                            dt.taskName,
+                            { color: T.t1 },
+                            status === "completed" && { color: T.t3, textDecorationLine: "line-through" },
+                          ]}>
+                            {task.name}
+                          </Text>
+                          {!!task.start_time && (
+                            <Text style={[dt.taskMeta, { color: T.t2 }]}>{task.start_time}</Text>
+                          )}
+                          {editMode && canEditSelected && (
+                            <EditPills
+                              current={status}
+                              onSet={(st) => setTaskStatus(task.id, st)}
+                              T={T}
+                            />
+                          )}
+                        </View>
+                        {!editMode && <StatusBadge status={status} T={T} />}
+                      </View>
+                    );
+                  })}
                 </>
               )}
             </View>
@@ -435,9 +512,9 @@ const s = StyleSheet.create({
   title:         { fontFamily: "Montserrat_700Bold", fontSize: 28, lineHeight: 34 },
 
   statsRow:      { flexDirection: "row", gap: 8, marginBottom: 20 },
-  statCard:      { flex: 1, borderWidth: 1, borderRadius: 14, paddingVertical: 16, paddingHorizontal: 8, alignItems: "center" },
-  statVal:       { fontFamily: "Montserrat_700Bold", fontSize: 22 },
-  statLbl:       { fontFamily: "Montserrat_600SemiBold", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 },
+  statCard:      { flex: 1, borderWidth: 1, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center" },
+  statVal:       { fontFamily: "Montserrat_700Bold", fontSize: 19 },
+  statLbl:       { fontFamily: "Montserrat_600SemiBold", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginTop: 2 },
 
   sectionLabel:  { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: 12, marginTop: 4 },
 
@@ -447,15 +524,11 @@ const s = StyleSheet.create({
   emptyDesc:     { fontFamily: "Montserrat_500Medium", fontSize: 13, textAlign: "center", lineHeight: 21 },
 
   dayList:       { marginTop: 0 },
-  dayRow:        { paddingVertical: 12 },
-  dayTop:        { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 },
+  dayRow:        { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", paddingVertical: 8 },
   dayName:       { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
   dayRight:      { flexDirection: "row", alignItems: "baseline", gap: 10 },
   dayCount:      { fontFamily: "Montserrat_500Medium", fontSize: 11 },
   dayPct:        { fontFamily: "Montserrat_700Bold", fontSize: 13 },
-
-  barTrack:      { height: 3, borderRadius: 99, overflow: "hidden" },
-  barFill:       { height: "100%", borderRadius: 99 } as any,
 
   calSection:       { marginTop: 28 },
   calSectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
@@ -470,18 +543,25 @@ const s = StyleSheet.create({
   calCell:         { flex: 1, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
   calDayBtn:       { width: "78%", height: "78%", borderRadius: 10, alignItems: "center", justifyContent: "center" },
   calDayText:      { fontFamily: "Montserrat_600SemiBold", fontSize: 12 },
-  calDayBar:       { position: "absolute", bottom: 4, width: "50%", height: 2, borderRadius: 2 },
 
   calDetail:       { marginTop: 16, borderWidth: 1, borderRadius: 14, padding: 16 },
-  calDetailDate:   { fontFamily: "Montserrat_700Bold", fontSize: 14, marginBottom: 8 },
+  calDetailHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  calDetailDate:   { fontFamily: "Montserrat_700Bold", fontSize: 14 },
   calDetailCount:  { fontFamily: "Montserrat_500Medium", fontSize: 12 },
-
-  dayTaskRow:      { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
-  dayCheckbox:     { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  dayCheckmark:    { fontFamily: "Montserrat_700Bold", fontSize: 10 },
-  dayTaskName:     { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
-  dayTaskMeta:     { fontFamily: "Montserrat_500Medium", fontSize: 10, marginTop: 2 },
-  skippedNote:     { fontFamily: "Montserrat_500Medium", fontSize: 11, marginTop: 10, fontStyle: "italic" },
+  editBtn:         { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderRadius: 99, paddingVertical: 5, paddingHorizontal: 10 },
+  editBtnText:     { fontFamily: "Montserrat_700Bold", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 },
+  futureNote:      { fontFamily: "Montserrat_500Medium", fontSize: 11, fontStyle: "italic", marginBottom: 10 },
 
   fade:          { position: "absolute", bottom: 0, left: 0, right: 0, height: 56 } as any,
+});
+
+const dt = StyleSheet.create({
+  taskRow:         { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
+  taskName:        { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
+  taskMeta:        { fontFamily: "Montserrat_500Medium", fontSize: 10, marginTop: 2 },
+  statusPill:      { borderWidth: 1, borderRadius: 99, paddingVertical: 4, paddingHorizontal: 10 },
+  statusPillText:  { fontFamily: "Montserrat_700Bold", fontSize: 10 },
+  pillRow:         { flexDirection: "row", gap: 6, marginTop: 8 },
+  pill:            { borderWidth: 1, borderRadius: 99, paddingVertical: 5, paddingHorizontal: 10 },
+  pillText:        { fontFamily: "Montserrat_700Bold", fontSize: 10 },
 });

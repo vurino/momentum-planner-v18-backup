@@ -10,8 +10,11 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Animated,
+  PanResponder,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 import ConfirmModal from "../../components/ConfirmModal";
@@ -27,6 +30,7 @@ interface Slot {
   order_index: number;
   days: string[];
   notes?: string | null;
+  specific_date?: string | null;
 }
 
 const ALL_DAYS: { key: string; label: string; full: string }[] = [
@@ -111,6 +115,86 @@ function timesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string
   return aS < bE && bS < aE;
 }
 
+function todayLocalStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatSpecificDateShort(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function getMonthMatrixLocal(year: number, month: number): (number | null)[][] {
+  const firstDay = new Date(year, month - 1, 1);
+  const numDays = new Date(year, month, 0).getDate();
+  const firstWeekday = (firstDay.getDay() + 6) % 7;
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= numDays; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: (number | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+/** Block-reflow, duration-conserving, day-set-aware reorder math.
+ * `others` = full slot list minus the dragged slot, in committed time order.
+ * `oldIndexInOthers` = dragged slot's original position relative to `others`.
+ * `targetIndexInOthers` = desired insertion index within `others` (0..others.length).
+ */
+function computeReflow(
+  others: Slot[],
+  dragged: Slot,
+  oldIndexInOthers: number,
+  targetIndexInOthers: number
+): Record<string, { start_time: string; end_time: string }> | null {
+  if (targetIndexInOthers === oldIndexInOthers) return null;
+  const dDur = diffMinutes(dragged.start_time, dragged.end_time);
+  const changes: Record<string, { start_time: string; end_time: string }> = {};
+
+  if (targetIndexInOthers > oldIndexInOthers) {
+    const blockAll = others.slice(oldIndexInOthers, targetIndexInOthers);
+    const block = blockAll.filter(s => s.days.some(d => dragged.days.includes(d)));
+    if (block.length === 0) return null;
+    let cursor = dragged.start_time;
+    for (const item of block) {
+      const dur = diffMinutes(item.start_time, item.end_time);
+      const newEnd = calcEndTime(cursor, dur);
+      changes[item.id] = { start_time: cursor, end_time: newEnd };
+      cursor = newEnd;
+    }
+    changes[dragged.id] = { start_time: cursor, end_time: calcEndTime(cursor, dDur) };
+  } else {
+    const blockAll = others.slice(targetIndexInOthers, oldIndexInOthers);
+    const block = blockAll.filter(s => s.days.some(d => dragged.days.includes(d)));
+    if (block.length === 0) return null;
+    const draggedNewStart = block[0].start_time;
+    changes[dragged.id] = { start_time: draggedNewStart, end_time: calcEndTime(draggedNewStart, dDur) };
+    let cursor = calcEndTime(draggedNewStart, dDur);
+    for (const item of block) {
+      const dur = diffMinutes(item.start_time, item.end_time);
+      const newEnd = calcEndTime(cursor, dur);
+      changes[item.id] = { start_time: cursor, end_time: newEnd };
+      cursor = newEnd;
+    }
+  }
+  return changes;
+}
+
+function findInsertIndex(
+  others: Slot[],
+  layouts: Record<string, { y: number; height: number }>,
+  absCenterY: number
+): number {
+  for (let i = 0; i < others.length; i++) {
+    const l = layouts[others[i].id];
+    if (!l) continue;
+    if (absCenterY < l.y + l.height / 2) return i;
+  }
+  return others.length;
+}
+
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 const CHIP_STEP = 46;
@@ -189,6 +273,59 @@ function TimePicker({
   );
 }
 
+function MiniCalendar({
+  value, onChange, T,
+}: {
+  value: string; onChange: (d: string) => void; T: ThemeTokens;
+}) {
+  const initial = value ? new Date(value + "T00:00:00") : new Date();
+  const [year, setYear] = useState(initial.getFullYear());
+  const [month, setMonth] = useState(initial.getMonth() + 1);
+
+  const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); };
+  const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); };
+
+  const monthLabel = new Date(year, month - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  return (
+    <View>
+      <View style={mc.header}>
+        <TouchableOpacity onPress={prevMonth} style={mc.navBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={[mc.navText, { color: T.t2 }]}>‹</Text>
+        </TouchableOpacity>
+        <Text style={[mc.monthLabel, { color: T.t1 }]}>{monthLabel}</Text>
+        <TouchableOpacity onPress={nextMonth} style={mc.navBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={[mc.navText, { color: T.t2 }]}>›</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={mc.weekRow}>
+        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+          <Text key={i} style={[mc.weekLabel, { color: T.t3 }]}>{d}</Text>
+        ))}
+      </View>
+      {getMonthMatrixLocal(year, month).map((week, wi) => (
+        <View key={wi} style={mc.weekRow}>
+          {week.map((day, di) => {
+            if (day === null) return <View key={di} style={mc.cell} />;
+            const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const isSelected = value === dateStr;
+            return (
+              <View key={di} style={mc.cell}>
+                <TouchableOpacity
+                  style={[mc.dayBtn, isSelected && { backgroundColor: T.orange }]}
+                  onPress={() => onChange(dateStr)}
+                >
+                  <Text style={[mc.dayText, { color: isSelected ? "#fff" : T.t1 }]}>{day}</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function SlotModal({
   slot,
   allSlots,
@@ -214,13 +351,15 @@ function SlotModal({
   const [selectedDays, setSelectedDays] = useState<string[]>(slot?.days ?? EVERY_DAY);
   const [notes, setNotes] = useState(slot?.notes ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isOneOff, setIsOneOff] = useState(!!slot?.specific_date);
+  const [specificDate, setSpecificDate] = useState(slot?.specific_date || todayLocalStr());
 
   const toggleDay = (key: string) => {
     setSelectedDays(prev => prev.includes(key) ? prev.filter(d => d !== key) : [...prev, key]);
   };
 
   const draftEnd = calcEndTime(time, parseInt(duration, 10) || 30);
-  const conflicts = allSlots.filter(s =>
+  const conflicts = isOneOff ? [] : allSlots.filter(s =>
     s.id !== slot?.id &&
     s.days.some(d => selectedDays.includes(d)) &&
     timesOverlap(time, draftEnd, s.start_time, s.end_time)
@@ -231,22 +370,33 @@ function SlotModal({
       Alert.alert("Name required");
       return;
     }
-    if (selectedDays.length === 0) {
+    if (!isOneOff && selectedDays.length === 0) {
       Alert.alert("Select at least one day");
       return;
     }
 
     const dur = parseInt(duration, 10) || 30;
 
-    onSave({
+    const payload: Partial<Slot> = {
       id: slot?.id,
       label: label.trim(),
       start_time: time,
       end_time: calcEndTime(time, dur),
       order_index: slot?.order_index ?? totalSlots,
-      days: selectedDays,
       notes: notes.trim() || undefined,
-    });
+    };
+
+    if (isOneOff) {
+      payload.specific_date = specificDate;
+      payload.days = EVERY_DAY;
+    } else {
+      payload.days = selectedDays;
+      if (!isNew && slot?.specific_date) {
+        payload.specific_date = "";
+      }
+    }
+
+    onSave(payload);
   };
 
   const handleDelete = () => {
@@ -294,54 +444,87 @@ function SlotModal({
             placeholderTextColor={T.t2}
           />
 
-          {conflicts.length > 0 && (
-            <View style={[ms.warningBox, { backgroundColor: `${T.danger}22`, borderColor: T.danger }]}>
-              <Text style={[ms.warningText, { color: T.danger }]}>
-                ⚠ Overlaps with {conflicts.map(c => c.label).join(", ")}
-              </Text>
-            </View>
-          )}
-
-          <Text style={[ms.fieldLabel, { color: T.t2 }]}>Repeat</Text>
+          <Text style={[ms.fieldLabel, { color: T.t2 }]}>Schedule type</Text>
           <View style={ms.recurrenceRow}>
-            {PRESETS.map(opt => {
-              const active = daysToRecurrenceKey(selectedDays) === opt.key;
-              return (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[
-                    ms.recurrenceBtn,
-                    { borderColor: T.border },
-                    active && { backgroundColor: T.orange, borderColor: T.orange },
-                  ]}
-                  onPress={() => setSelectedDays(opt.days)}
-                >
-                  <Text style={[ms.recurrenceBtnText, { color: active ? "#fff" : T.t2 }]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            <TouchableOpacity
+              style={[
+                ms.recurrenceBtn,
+                { borderColor: T.border },
+                !isOneOff && { backgroundColor: T.orange, borderColor: T.orange },
+              ]}
+              onPress={() => setIsOneOff(false)}
+            >
+              <Text style={[ms.recurrenceBtnText, { color: !isOneOff ? "#fff" : T.t2 }]}>Recurring</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                ms.recurrenceBtn,
+                { borderColor: T.border },
+                isOneOff && { backgroundColor: T.orange, borderColor: T.orange },
+              ]}
+              onPress={() => setIsOneOff(true)}
+            >
+              <Text style={[ms.recurrenceBtnText, { color: isOneOff ? "#fff" : T.t2 }]}>One-off</Text>
+            </TouchableOpacity>
           </View>
 
-          <View style={ms.dayPickerRow}>
-            {ALL_DAYS.map(d => {
-              const active = selectedDays.includes(d.key);
-              return (
-                <TouchableOpacity
-                  key={d.key}
-                  style={[
-                    ms.dayChip,
-                    { borderColor: T.border },
-                    active && { backgroundColor: T.orange, borderColor: T.orange },
-                  ]}
-                  onPress={() => toggleDay(d.key)}
-                >
-                  <Text style={[ms.dayChipText, { color: active ? "#fff" : T.t2 }]}>{d.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {isOneOff ? (
+            <>
+              <Text style={[ms.fieldLabel, { color: T.t2 }]}>Date</Text>
+              <MiniCalendar value={specificDate} onChange={setSpecificDate} T={T} />
+            </>
+          ) : (
+            <>
+              {conflicts.length > 0 && (
+                <View style={[ms.warningBox, { backgroundColor: `${T.danger}22`, borderColor: T.danger }]}>
+                  <Text style={[ms.warningText, { color: T.danger }]}>
+                    ⚠ Overlaps with {conflicts.map(c => c.label).join(", ")}
+                  </Text>
+                </View>
+              )}
+
+              <Text style={[ms.fieldLabel, { color: T.t2 }]}>Repeat</Text>
+              <View style={ms.recurrenceRow}>
+                {PRESETS.map(opt => {
+                  const active = daysToRecurrenceKey(selectedDays) === opt.key;
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[
+                        ms.recurrenceBtn,
+                        { borderColor: T.border },
+                        active && { backgroundColor: T.orange, borderColor: T.orange },
+                      ]}
+                      onPress={() => setSelectedDays(opt.days)}
+                    >
+                      <Text style={[ms.recurrenceBtnText, { color: active ? "#fff" : T.t2 }]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={ms.dayPickerRow}>
+                {ALL_DAYS.map(d => {
+                  const active = selectedDays.includes(d.key);
+                  return (
+                    <TouchableOpacity
+                      key={d.key}
+                      style={[
+                        ms.dayChip,
+                        { borderColor: T.border },
+                        active && { backgroundColor: T.orange, borderColor: T.orange },
+                      ]}
+                      onPress={() => toggleDay(d.key)}
+                    >
+                      <Text style={[ms.dayChipText, { color: active ? "#fff" : T.t2 }]}>{d.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
 
           <Text style={[ms.fieldLabel, { color: T.t2 }]}>Notes (optional)</Text>
           <TextInput
@@ -393,6 +576,20 @@ export default function RoutineScreen() {
   const [editing, setEditing] = useState<Partial<Slot> | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [filter, setFilter] = useState("all");
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const dragY = useRef(new Animated.Value(0)).current;
+  const rowLayouts = useRef<Record<string, { y: number; height: number }>>({});
+  const dragCtx = useRef<{
+    othersSnapshot: Slot[];
+    oldIndexInOthers: number;
+    dragged: Slot;
+    layoutSnapshot: Record<string, { y: number; height: number }>;
+  } | null>(null);
+  const [previewChanges, setPreviewChanges] = useState<Record<string, { start_time: string; end_time: string }> | null>(null);
+  const [undoSnapshot, setUndoSnapshot] = useState<{ id: string; start_time: string; end_time: string }[] | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -403,6 +600,10 @@ export default function RoutineScreen() {
     `;
     document.head.appendChild(style);
     return () => { document.head.removeChild(style); };
+  }, []);
+
+  useEffect(() => () => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   }, []);
 
   const fetchSlots = useCallback(async () => {
@@ -441,7 +642,7 @@ export default function RoutineScreen() {
 
   const saveSlot = async (data: Partial<Slot>) => {
     try {
-      const body = {
+      const body: any = {
         label: data.label,
         start_time: data.start_time,
         end_time: data.end_time,
@@ -449,6 +650,9 @@ export default function RoutineScreen() {
         days: data.days ?? EVERY_DAY,
         notes: data.notes ?? null,
       };
+      if (data.specific_date !== undefined) {
+        body.specific_date = data.specific_date;
+      }
 
       const res = await fetch(
         data.id ? `${BASE}/api/schedule-slots/${data.id}` : `${BASE}/api/schedule-slots`,
@@ -482,6 +686,98 @@ export default function RoutineScreen() {
     }
   };
 
+  const handleDragGrant = useCallback((slot: Slot) => {
+    setSlots(prevSlots => {
+      const idx = prevSlots.findIndex(s => s.id === slot.id);
+      const others = prevSlots.filter(s => s.id !== slot.id);
+      dragCtx.current = {
+        othersSnapshot: others,
+        oldIndexInOthers: idx,
+        dragged: slot,
+        layoutSnapshot: { ...rowLayouts.current },
+      };
+      return prevSlots;
+    });
+    dragY.setValue(0);
+    setDraggingId(slot.id);
+    setScrollEnabled(false);
+  }, [dragY]);
+
+  const handleDragMove = useCallback((dy: number) => {
+    dragY.setValue(dy);
+    const ctx = dragCtx.current;
+    if (!ctx) return;
+    const layout = ctx.layoutSnapshot[ctx.dragged.id];
+    if (!layout) return;
+    const absCenter = layout.y + dy + layout.height / 2;
+    const targetIdx = findInsertIndex(ctx.othersSnapshot, ctx.layoutSnapshot, absCenter);
+    const changes = computeReflow(ctx.othersSnapshot, ctx.dragged, ctx.oldIndexInOthers, targetIdx);
+    setPreviewChanges(changes);
+  }, [dragY]);
+
+  const handleDragRelease = useCallback(() => {
+    setDraggingId(null);
+    setScrollEnabled(true);
+    dragY.setValue(0);
+    const ctx = dragCtx.current;
+    dragCtx.current = null;
+
+    setPreviewChanges(currentChanges => {
+      if (!ctx || !currentChanges || Object.keys(currentChanges).length === 0) {
+        return null;
+      }
+
+      setSlots(prevSlots => {
+        const snapshot = Object.keys(currentChanges).map(id => {
+          const orig = prevSlots.find(s => s.id === id)!;
+          return { id, start_time: orig.start_time, end_time: orig.end_time };
+        });
+
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        setUndoSnapshot(snapshot);
+        undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 6000);
+
+        Promise.all(Object.entries(currentChanges).map(([id, ch]) =>
+          fetch(`${BASE}/api/schedule-slots/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(ch),
+          })
+        )).catch(e => console.error(e));
+
+        const next = prevSlots.map(s => currentChanges[s.id] ? { ...s, ...currentChanges[s.id] } : s);
+        return [...next].sort((a, b) => a.start_time.localeCompare(b.start_time));
+      });
+
+      return null;
+    });
+  }, [dragY]);
+
+  const handleUndo = useCallback(() => {
+    setUndoSnapshot(currentSnap => {
+      if (!currentSnap) return null;
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+
+      setSlots(prevSlots => {
+        const map: Record<string, { start_time: string; end_time: string }> = {};
+        currentSnap.forEach(s => { map[s.id] = { start_time: s.start_time, end_time: s.end_time }; });
+
+        Promise.all(currentSnap.map(s =>
+          fetch(`${BASE}/api/schedule-slots/${s.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(map[s.id]),
+          })
+        )).catch(e => console.error(e));
+
+        const next = prevSlots.map(s => map[s.id] ? { ...s, ...map[s.id] } : s);
+        return [...next].sort((a, b) => a.start_time.localeCompare(b.start_time));
+      });
+
+      return null;
+    });
+  }, []);
+
   if (loading) {
     return (
       <View style={[s.centered, { backgroundColor: T.bg }]}>
@@ -494,6 +790,17 @@ export default function RoutineScreen() {
     ? slots
     : slots.filter(slot => daysToRecurrenceKey(slot.days) === filter);
 
+  const canDrag = filter === "all";
+
+  const displayList = (() => {
+    if (!previewChanges) return visibleSlots;
+    const map = { ...previewChanges };
+    if (draggingId) delete map[draggingId];
+    const next = slots.map(s => map[s.id] ? { ...s, ...map[s.id] } : s);
+    const sorted = [...next].sort((a, b) => a.start_time.localeCompare(b.start_time));
+    return filter === "all" ? sorted : sorted.filter(sl => daysToRecurrenceKey(sl.days) === filter);
+  })();
+
   return (
     <View style={[s.screen, { backgroundColor: T.bg }]}>
       <ScrollView
@@ -501,6 +808,7 @@ export default function RoutineScreen() {
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={scrollEnabled}
       >
         <View style={s.header}>
           <Text style={[s.eyebrow, { color: T.orange }]}>Daily template</Text>
@@ -546,37 +854,91 @@ export default function RoutineScreen() {
           </View>
         )}
 
-        {visibleSlots.map((slot) => {
+        {displayList.map((slot) => {
           const duration = diffMinutes(slot.start_time, slot.end_time);
+          const isOneOffSlot = !!slot.specific_date;
+          const isDraggingThis = draggingId === slot.id;
+
+          const panResponder = canDrag ? PanResponder.create({
+            onStartShouldSetPanResponder: () => true,
+            onPanResponderGrant: () => handleDragGrant(slot),
+            onPanResponderMove: (_e, gesture) => handleDragMove(gesture.dy),
+            onPanResponderRelease: () => handleDragRelease(),
+            onPanResponderTerminate: () => handleDragRelease(),
+          }) : null;
 
           return (
-            <TouchableOpacity
+            <View
               key={slot.id}
-              style={[s.item, { backgroundColor: T.surface, borderColor: T.border }]}
-              onPress={() => openEdit(slot)}
+              onLayout={(e) => {
+                rowLayouts.current[slot.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height };
+              }}
+              style={[
+                s.item,
+                { backgroundColor: T.surface, borderColor: T.border },
+                isDraggingThis && {
+                  transform: [{ translateY: dragY }],
+                  zIndex: 999,
+                  elevation: 12,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.25,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 4 },
+                },
+              ] as any}
             >
-              <View style={s.itemInfo}>
-                <View style={s.itemNameRow}>
-                  <Text style={[s.itemName, { color: T.t1 }]}>{slot.label}</Text>
-                  {!!slot.notes && <View style={[s.noteDot, { backgroundColor: T.orange }]} />}
+              <TouchableOpacity style={s.itemBody} onPress={() => openEdit(slot)} activeOpacity={0.7}>
+                <View style={s.itemInfo}>
+                  <View style={s.itemNameRow}>
+                    <Text style={[s.itemName, { color: T.t1 }]}>{slot.label}</Text>
+                    {!!slot.notes && <View style={[s.noteDot, { backgroundColor: T.orange }]} />}
+                  </View>
+                  <Text style={[s.itemMeta, { color: T.t2 }]}>
+                    {slot.start_time} · {formatDur(duration)}
+                    {isOneOffSlot ? ` · ${formatSpecificDateShort(slot.specific_date!)}` : ""}
+                  </Text>
                 </View>
-                <Text style={[s.itemMeta, { color: T.t2 }]}>
-                  {slot.start_time} · {formatDur(duration)}
-                </Text>
-              </View>
-              <View style={[s.badge, { borderColor: T.border }]}>
-                <Text style={[s.badgeText, { color: T.t2 }]}>{recurrenceLabel(slot.days)}</Text>
-              </View>
-            </TouchableOpacity>
+                <View style={[s.badge, { borderColor: isOneOffSlot ? T.orange : T.border }]}>
+                  <Text style={[s.badgeText, { color: isOneOffSlot ? T.orange : T.t2 }]}>
+                    {isOneOffSlot ? "One-off" : recurrenceLabel(slot.days)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {canDrag && (
+                <View
+                  {...(panResponder ? panResponder.panHandlers : {})}
+                  style={s.gripHandle}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="reorder-three-outline" size={20} color={T.t3} />
+                </View>
+              )}
+            </View>
           );
         })}
 
-        <TouchableOpacity style={[s.addBtn, { borderColor: T.border }]} onPress={openAdd}>
-          <Text style={[s.addBtnText, { color: T.t2 }]}>+ Add activity</Text>
-        </TouchableOpacity>
+        <View style={{ height: 72 }} />
       </ScrollView>
 
       <LinearGradient colors={["transparent", T.bg]} style={s.fade} pointerEvents="none" />
+
+      {undoSnapshot && (
+        <View style={[s.undoToast, { backgroundColor: T.surface, borderColor: T.border }]}>
+          <Text style={[s.undoText, { color: T.t1 }]}>Order updated</Text>
+          <TouchableOpacity onPress={handleUndo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={[s.undoBtn, { color: T.orange }]}>Undo</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[s.fab, { backgroundColor: T.orange }]}
+        onPress={openAdd}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="add" size={26} color="#fff" />
+      </TouchableOpacity>
 
       {modalOpen && (
         <SlotModal
@@ -596,7 +958,7 @@ export default function RoutineScreen() {
 const s = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 80 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { paddingTop: 24, paddingBottom: 22 },
   eyebrow: { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 4, textTransform: "uppercase", marginBottom: 6 },
@@ -612,7 +974,9 @@ const s = StyleSheet.create({
   emptyIcon: { fontSize: 40, marginBottom: 16 },
   emptyTitle: { fontFamily: "Montserrat_700Bold", fontSize: 18, marginBottom: 10, textAlign: "center" },
   emptyDesc: { fontFamily: "Montserrat_500Medium", fontSize: 13, textAlign: "center", lineHeight: 20 },
-  item: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6 },
+  item: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6 },
+  itemBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  gripHandle: { paddingLeft: 10, paddingVertical: 4 },
   itemInfo: { flex: 1 },
   itemNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   itemName: { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
@@ -620,9 +984,44 @@ const s = StyleSheet.create({
   itemMeta: { fontFamily: "Montserrat_500Medium", fontSize: 11, marginTop: 3 },
   badge: { borderWidth: 1, borderRadius: 99, paddingVertical: 4, paddingHorizontal: 10 },
   badgeText: { fontFamily: "Montserrat_600SemiBold", fontSize: 10 },
-  addBtn: { borderWidth: 1, borderStyle: "dashed", borderRadius: 14, padding: 14, alignItems: "center", marginTop: 4 },
-  addBtnText: { fontFamily: "Montserrat_600SemiBold", fontSize: 12, letterSpacing: 1 },
   fade: { position: "absolute", bottom: 0, left: 0, right: 0, height: 56 } as any,
+
+  fab: {
+    position: "absolute",
+    right: 20,
+    bottom: 28,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+
+  undoToast: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 96,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  undoText: { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
+  undoBtn: { fontFamily: "Montserrat_700Bold", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 },
 });
 
 const ms = StyleSheet.create({
@@ -657,4 +1056,16 @@ const tp = StyleSheet.create({
   chipRow: { flexDirection: "row", gap: 6, paddingRight: 4 },
   chip: { minWidth: 40, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10, alignItems: "center" },
   chipText: { fontFamily: "Montserrat_700Bold", fontSize: 13 },
+});
+
+const mc = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  navBtn: { paddingHorizontal: 14, paddingVertical: 4 },
+  navText: { fontFamily: "Montserrat_700Bold", fontSize: 18 },
+  monthLabel: { fontFamily: "Montserrat_700Bold", fontSize: 14 },
+  weekRow: { flexDirection: "row" },
+  weekLabel: { flex: 1, textAlign: "center", fontFamily: "Montserrat_600SemiBold", fontSize: 10, textTransform: "uppercase", marginBottom: 6 },
+  cell: { flex: 1, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
+  dayBtn: { width: "78%", height: "78%", borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  dayText: { fontFamily: "Montserrat_600SemiBold", fontSize: 12 },
 });

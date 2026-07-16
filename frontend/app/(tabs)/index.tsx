@@ -12,6 +12,7 @@ import { scheduleTaskReminders } from "../../utils/notifications";
 import ConfirmModal from "../../components/ConfirmModal";
 
 const BASE = "";
+const LIST_OPEN_KEY = "todayListOpen";
 
 interface Task {
   id: string;
@@ -19,12 +20,17 @@ interface Task {
   done: boolean;
   completed: boolean;
   skipped: boolean;
+  stopped: boolean;
+  auto_skipped: boolean;
   notes?: string | null;
   slot_id: string;
   date: string;
   start_time?: string;
   end_time?: string;
   duration?: number;
+  started_at?: string | null;
+  completed_at?: string | null;
+  stopped_at?: string | null;
 }
 
 function getGreeting() {
@@ -40,8 +46,15 @@ function formatDate() {
   });
 }
 
+// Local calendar date — NOT UTC. Using toISOString() here caused the app to
+// fetch tomorrow's task list during local evenings and mass-skip it.
 function todayStr() {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function nowISO() {
+  return new Date().toISOString();
 }
 
 function getTaskTime(task: Task): string {
@@ -57,7 +70,7 @@ function nowMinutes(): number {
   return d.getHours() * 60 + d.getMinutes();
 }
 
-function toMinutes(t?: string): number | null {
+function toMinutes(t?: string | null): number | null {
   if (!t) return null;
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
@@ -82,6 +95,10 @@ function formatDur(min: number) {
   return `${min} min`;
 }
 
+function isUnresolved(t: Task) {
+  return !t.done && !t.skipped && !t.stopped;
+}
+
 function PulsingDot({ color }: { color: string }) {
   const anim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -93,6 +110,31 @@ function PulsingDot({ color }: { color: string }) {
     ).start();
   }, []);
   return <Animated.View style={[styles.dot, { backgroundColor: color, opacity: anim }]} />;
+}
+
+// Staggered fade: rows appear top-to-bottom on expand and disappear
+// bottom-to-top on collapse.
+function FadeRow({ index, total, open, children }: {
+  index: number; total: number; open: boolean; children: React.ReactNode;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const delay = open ? index * 55 : (total - 1 - index) * 45;
+    Animated.timing(anim, {
+      toValue: open ? 1 : 0,
+      duration: 200,
+      delay,
+      useNativeDriver: true,
+    }).start();
+  }, [open, index, total]);
+  return (
+    <Animated.View style={{
+      opacity: anim,
+      transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+    }}>
+      {children}
+    </Animated.View>
+  );
 }
 
 function NoteEditor({
@@ -122,11 +164,14 @@ function NoteEditor({
 }
 
 function HeroCard({
-  task, T, onSkip, onSaveNote, upcoming,
+  task, T, onSkip, onSaveNote, onStart, onComplete, onStopRequest, upcoming,
 }: {
   task: Task; T: ThemeTokens;
   onSkip: (id: string, name: string) => void;
   onSaveNote: (id: string, notes: string) => void;
+  onStart: (task: Task) => void;
+  onComplete: (task: Task) => void;
+  onStopRequest: (task: Task) => void;
   upcoming: boolean;
 }) {
   const timeStr = getTaskTime(task);
@@ -134,9 +179,22 @@ function HeroCard({
   const { remaining, pct } = calcRemaining(timeStr, duration);
   const [noteOpen, setNoteOpen] = useState(false);
 
-  const accent = upcoming ? T.t2 : T.orange;
+  const started = !!task.started_at;
+  const accent = started ? T.orange : upcoming ? T.t2 : T.orange;
+  const statusLabel = started ? "In progress" : upcoming ? "Up next" : "Now active";
   const startMin = toMinutes(timeStr);
   const minsUntil = startMin !== null ? Math.max(0, startMin - nowMinutes()) : 0;
+
+  const openFocus = () => router.push({
+    pathname: "/focus",
+    params: {
+      id: task.id,
+      date: todayStr(),
+      label: task.name,
+      start_time: timeStr,
+      end_time: task.end_time ?? "",
+    },
+  });
 
   return (
     <View style={[
@@ -151,15 +209,17 @@ function HeroCard({
       <View style={styles.heroTopRow}>
         <View style={styles.heroLabel}>
           <PulsingDot color={accent} />
-          <Text style={[styles.heroLabelText, { color: accent }]}>{upcoming ? "Up next" : "Now active"}</Text>
+          <Text style={[styles.heroLabelText, { color: accent }]}>{statusLabel}</Text>
         </View>
         <View style={styles.heroLinks}>
           <TouchableOpacity onPress={() => setNoteOpen(o => !o)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={[styles.heroLinkText, { color: T.t2 }]}>{task.notes ? "Note •" : "Note"}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => onSkip(task.id, task.name || "This task")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={[styles.heroLinkText, { color: T.t2 }]}>Skip</Text>
-          </TouchableOpacity>
+          {!started && (
+            <TouchableOpacity onPress={() => onSkip(task.id, task.name || "This task")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={[styles.heroLinkText, { color: T.t2 }]}>Skip</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
       <Text style={[styles.heroName, { color: T.t1 }]}>{task.name}</Text>
@@ -167,7 +227,7 @@ function HeroCard({
         {timeStr} · {formatDur(duration)}
       </Text>
 
-      {upcoming ? (
+      {upcoming && !started ? (
         <Text style={[styles.heroRemain, { color: T.t2, marginTop: 2 }]}>
           Starts {minsUntil <= 60 ? `in ${minsUntil} min` : `at ${timeStr}`}
         </Text>
@@ -186,19 +246,34 @@ function HeroCard({
         <NoteEditor task={task} T={T} onSaveNote={(id, notes) => { onSaveNote(id, notes); setNoteOpen(false); }} />
       )}
 
-      <TouchableOpacity
-        style={[styles.focusBtn, { backgroundColor: T.orange, shadowColor: T.orange }]}
-        onPress={() => router.push({
-          pathname: "/focus",
-          params: {
-            label: task.name,
-            start_time: timeStr,
-            end_time: task.end_time ?? "",
-          },
-        })}
-      >
-        <Text style={styles.focusBtnText}>{upcoming ? "Start early" : "Focus"}</Text>
-      </TouchableOpacity>
+      {!started ? (
+        <TouchableOpacity
+          style={[styles.focusBtn, { backgroundColor: T.orange, shadowColor: T.orange }]}
+          onPress={() => onStart(task)}
+        >
+          <Text style={styles.focusBtnText}>{upcoming ? "Start early" : "Start"}</Text>
+        </TouchableOpacity>
+      ) : (
+        <>
+          <View style={styles.heroActionsRow}>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: T.orange, shadowColor: T.orange }]}
+              onPress={() => onComplete(task)}
+            >
+              <Text style={styles.focusBtnText}>Complete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.stopBtn, { borderColor: T.danger }]}
+              onPress={() => onStopRequest(task)}
+            >
+              <Text style={[styles.focusBtnText, { color: T.danger }]}>Stop</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity onPress={openFocus} style={styles.focusLink}>
+            <Text style={[styles.focusLinkText, { color: T.t2 }]}>Open focus timer</Text>
+          </TouchableOpacity>
+        </>
+      )}
     </View>
   );
 }
@@ -287,24 +362,86 @@ export default function TodayScreen() {
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmSkip, setConfirmSkip] = useState<{ id: string; name: string } | null>(null);
+  const [confirmStop, setConfirmStop] = useState<{ id: string; name: string } | null>(null);
+
+  // Collapsible task list. listOpen drives the animation; listRendered keeps
+  // rows mounted until the collapse animation finishes.
+  const [listOpen, setListOpen] = useState(false);
+  const [listRendered, setListRendered] = useState(false);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem(LIST_OPEN_KEY).then(v => {
+      if (v === "true") { setListOpen(true); setListRendered(true); }
+    }).catch(() => {});
+  }, []);
+
+  const patchTask = async (id: string, body: Record<string, unknown>) => {
+    try {
+      await fetch(`${BASE}/api/daily-tasks/${id}?client_today=${todayStr()}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     try {
       const [tasksRes, streakRes] = await Promise.all([
         fetch(`${BASE}/api/daily-tasks/${todayStr()}`),
-        fetch(`${BASE}/api/streak`),
+        fetch(`${BASE}/api/streak?today=${todayStr()}`),
       ]);
       const tasksData  = await tasksRes.json();
       const streakData = await streakRes.json();
       const raw = Array.isArray(tasksData) ? tasksData : tasksData.tasks ?? [];
-      const mapped = raw.map((t: any) => ({ ...t, done: t.completed ?? false, skipped: t.skipped ?? false }));
+      const mapped: Task[] = raw.map((t: any) => ({
+        ...t,
+        done: t.completed ?? false,
+        skipped: t.skipped ?? false,
+        stopped: t.stopped ?? false,
+        auto_skipped: t.auto_skipped ?? false,
+      }));
+
+      // Auto-resolution: a task whose window fully passed without being
+      // completed becomes stopped (if it was started) or skipped (if it was
+      // never touched). Premature auto-skips — possible leftovers of the old
+      // UTC-date bug — are healed back to pending while their window is open.
+      const nowMin = nowMinutes();
+      const patches: { id: string; body: Record<string, unknown> }[] = [];
+      for (const t of mapped) {
+        const start = toMinutes(t.start_time);
+        if (start === null) continue;
+        const windowEnded = start + (t.duration ?? 30) < nowMin;
+        if (windowEnded && isUnresolved(t)) {
+          if (t.started_at) {
+            t.stopped = true;
+            t.stopped_at = nowISO();
+            patches.push({ id: t.id, body: { stopped: true, stopped_at: t.stopped_at } });
+          } else {
+            t.skipped = true;
+            t.auto_skipped = true;
+            patches.push({ id: t.id, body: { skipped: true, auto_skipped: true } });
+          }
+        } else if (!windowEnded && t.skipped && t.auto_skipped && !t.done) {
+          t.skipped = false;
+          t.auto_skipped = false;
+          patches.push({ id: t.id, body: { skipped: false, auto_skipped: false } });
+        }
+      }
+      if (patches.length > 0) {
+        await Promise.all(patches.map(p => patchTask(p.id, p.body)));
+      }
+
       setTasks(mapped);
       setStreak(streakData.streak ?? 0);
 
       const remindersPref = await AsyncStorage.getItem("taskReminders");
       const remindersOn = remindersPref !== null ? JSON.parse(remindersPref) : true;
       if (remindersOn) {
-        scheduleTaskReminders(mapped.filter((t: Task) => !t.skipped)).catch(err => console.error(err));
+        scheduleTaskReminders(mapped.filter((t: Task) => isUnresolved(t))).catch(err => console.error(err));
       }
     } catch (e) {
       console.error("Fetch error:", e);
@@ -316,33 +453,27 @@ export default function TodayScreen() {
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
-  const patchTask = async (id: string, body: Record<string, unknown>) => {
-    try {
-      await fetch(`${BASE}/api/daily-tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (e) {
-      console.error(e);
+  const toggleList = () => {
+    if (collapseTimer.current) clearTimeout(collapseTimer.current);
+    if (!listOpen) {
+      setListRendered(true);
+      setListOpen(true);
+      AsyncStorage.setItem(LIST_OPEN_KEY, "true").catch(() => {});
+    } else {
+      setListOpen(false);
+      AsyncStorage.setItem(LIST_OPEN_KEY, "false").catch(() => {});
+      collapseTimer.current = setTimeout(() => setListRendered(false), collapsibleCount * 45 + 260);
     }
   };
 
   const toggleTask = async (id: string, currentDone: boolean) => {
+    const body = currentDone
+      ? { completed: false }
+      : { completed: true, completed_at: nowISO(), skipped: false, stopped: false, auto_skipped: false };
     setTasks(prev =>
-      prev.map(t => t.id === id ? { ...t, done: !t.done } : t)
+      prev.map(t => t.id === id ? { ...t, done: !currentDone, completed: !currentDone } : t)
     );
-    try {
-      await fetch(`${BASE}/api/daily-tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: !currentDone }),
-      });
-    } catch (e) {
-      setTasks(prev =>
-        prev.map(t => t.id === id ? { ...t, done: currentDone } : t)
-      );
-    }
+    await patchTask(id, body);
   };
 
   const skipTask = (id: string, name: string) => {
@@ -353,8 +484,42 @@ export default function TodayScreen() {
     if (!confirmSkip) return;
     const { id } = confirmSkip;
     setConfirmSkip(null);
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, skipped: true } : t));
-    await patchTask(id, { skipped: true });
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, skipped: true, auto_skipped: false } : t));
+    await patchTask(id, { skipped: true, auto_skipped: false });
+  };
+
+  const startTask = async (task: Task) => {
+    const startedAt = nowISO();
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, started_at: startedAt } : t));
+    await patchTask(task.id, { started_at: startedAt });
+    router.push({
+      pathname: "/focus",
+      params: {
+        id: task.id,
+        date: todayStr(),
+        label: task.name,
+        start_time: task.start_time ?? "",
+        end_time: task.end_time ?? "",
+      },
+    });
+  };
+
+  const completeTask = async (task: Task) => {
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: true, completed: true } : t));
+    await patchTask(task.id, { completed: true, completed_at: nowISO(), skipped: false, stopped: false, auto_skipped: false });
+  };
+
+  const stopRequest = (task: Task) => {
+    setConfirmStop({ id: task.id, name: task.name || "This task" });
+  };
+
+  const confirmStopNow = async () => {
+    if (!confirmStop) return;
+    const { id } = confirmStop;
+    setConfirmStop(null);
+    const stoppedAt = nowISO();
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, stopped: true, stopped_at: stoppedAt } : t));
+    await patchTask(id, { stopped: true, stopped_at: stoppedAt });
   };
 
   const saveNote = async (id: string, notes: string) => {
@@ -362,19 +527,67 @@ export default function TodayScreen() {
     await patchTask(id, { notes });
   };
 
-  const activeTasks = tasks.filter(t => !t.skipped);
-  const skippedTasks = tasks.filter(t => t.skipped);
-
-  const sortedTasks = [...activeTasks].sort((a, b) =>
+  const sortedTasks = [...tasks].sort((a, b) =>
     (a.start_time ?? "").localeCompare(b.start_time ?? "")
   );
 
-  const activeTask = sortedTasks.find(t => !t.done) ?? null;
-  const listTasks  = sortedTasks.filter(t => t.id !== activeTask?.id);
-  const doneCount  = activeTasks.filter(t => t.done).length;
+  // A started task stays the hero until resolved, even after its window ends.
+  const inProgress = sortedTasks.find(t => isUnresolved(t) && t.started_at);
+  const nextPending = sortedTasks.find(isUnresolved);
+  const activeTask = inProgress ?? nextPending ?? null;
+
+  const listTasks = sortedTasks.filter(t => !t.skipped && !t.stopped && t.id !== activeTask?.id);
+  const stoppedTasks = sortedTasks.filter(t => t.stopped);
+  const skippedTasks = sortedTasks.filter(t => t.skipped);
+
+  const doneCount = tasks.filter(t => t.done).length;
+  const totalCount = tasks.length;
 
   const activeStartMin = activeTask ? toMinutes(activeTask.start_time) : null;
   const isUpcoming = activeTask !== null && activeStartMin !== null && activeStartMin > nowMinutes();
+
+  // Everything inside the collapsible region, flattened so the stagger
+  // animation can index across rows and section headers alike.
+  const collapsibleItems: React.ReactNode[] = [];
+  listTasks.forEach((task, i) => {
+    collapsibleItems.push(
+      <TaskRow
+        key={task.id}
+        task={task}
+        isLast={i === listTasks.length - 1}
+        onToggle={toggleTask}
+        onSaveNote={saveNote}
+        T={T}
+      />
+    );
+  });
+  if (stoppedTasks.length > 0) {
+    collapsibleItems.push(
+      <Text key="stopped-label" style={[styles.listLabel, { color: T.t3, marginTop: 20 }]}>Stopped</Text>
+    );
+    stoppedTasks.forEach(task => {
+      collapsibleItems.push(
+        <View key={task.id} style={styles.resolvedRow}>
+          <Text style={[styles.resolvedText, { color: T.t3 }]}>{task.name}</Text>
+          <Text style={[styles.resolvedTag, { color: T.orange }]}>stopped</Text>
+        </View>
+      );
+    });
+  }
+  if (skippedTasks.length > 0) {
+    collapsibleItems.push(
+      <Text key="skipped-label" style={[styles.listLabel, { color: T.t3, marginTop: 20 }]}>Skipped</Text>
+    );
+    skippedTasks.forEach(task => {
+      collapsibleItems.push(
+        <View key={task.id} style={styles.resolvedRow}>
+          <Text style={[styles.resolvedText, styles.struck, { color: T.t3 }]}>{task.name}</Text>
+          <Text style={[styles.resolvedTag, { color: T.t3 }]}>skipped</Text>
+        </View>
+      );
+    });
+  }
+  const collapsibleCount = collapsibleItems.length;
 
   if (loading) {
     return (
@@ -404,8 +617,17 @@ export default function TodayScreen() {
         </View>
 
         {activeTask
-          ? <HeroCard task={activeTask} T={T} onSkip={skipTask} onSaveNote={saveNote} upcoming={isUpcoming} />
-          : activeTasks.length === 0 ? (
+          ? <HeroCard
+              task={activeTask}
+              T={T}
+              onSkip={skipTask}
+              onSaveNote={saveNote}
+              onStart={startTask}
+              onComplete={completeTask}
+              onStopRequest={stopRequest}
+              upcoming={isUpcoming}
+            />
+          : totalCount === 0 ? (
             <View style={[styles.hero, styles.heroEmpty, { backgroundColor: T.surface, borderColor: T.border, borderLeftColor: T.t3 }]}>
               <Text style={[styles.emptyIcon, { color: T.t3 }]}>○</Text>
               <Text style={[styles.emptyText, { color: T.t2 }]}>Nothing scheduled today</Text>
@@ -419,35 +641,22 @@ export default function TodayScreen() {
         }
 
         <View style={[styles.footer, { borderBottomColor: T.border }]}>
-          <Text style={[styles.footerLeft, { color: T.t2 }]}>{doneCount} of {activeTasks.length} done</Text>
+          <Text style={[styles.footerLeft, { color: T.t2 }]}>{doneCount} of {totalCount} done</Text>
           <Text style={[styles.footerRight, { color: T.t1 }]}>{streak}d streak</Text>
         </View>
 
-        {listTasks.length > 0 && (
-          <Text style={[styles.listLabel, { color: T.t2 }]}>Today's tasks</Text>
+        {collapsibleCount > 0 && (
+          <TouchableOpacity style={styles.listHeaderRow} onPress={toggleList} activeOpacity={0.6}>
+            <Text style={[styles.listLabel, { color: T.t2, marginTop: 0, marginBottom: 0 }]}>Today's tasks</Text>
+            <Text style={[styles.chevron, { color: T.t2 }]}>{listOpen ? "▲" : "▼"}</Text>
+          </TouchableOpacity>
         )}
 
-        {listTasks.map((task, i) => (
-          <TaskRow
-            key={task.id}
-            task={task}
-            isLast={i === listTasks.length - 1}
-            onToggle={toggleTask}
-            onSaveNote={saveNote}
-            T={T}
-          />
+        {listRendered && collapsibleItems.map((item, i) => (
+          <FadeRow key={`fade-${i}`} index={i} total={collapsibleCount} open={listOpen}>
+            {item}
+          </FadeRow>
         ))}
-
-        {skippedTasks.length > 0 && (
-          <>
-            <Text style={[styles.listLabel, { color: T.t3, marginTop: 24 }]}>Skipped</Text>
-            {skippedTasks.map(task => (
-              <View key={task.id} style={styles.skippedRow}>
-                <Text style={[styles.skippedText, { color: T.t3 }]}>{task.name}</Text>
-              </View>
-            ))}
-          </>
-        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -461,11 +670,21 @@ export default function TodayScreen() {
       <ConfirmModal
         visible={!!confirmSkip}
         title="Skip today?"
-        message={confirmSkip ? `"${confirmSkip.name}" won't count toward today's total or your streak.` : ""}
+        message={confirmSkip ? `"${confirmSkip.name}" will be marked as not attempted. It still counts toward today's total.` : ""}
         confirmLabel="Skip"
         T={T}
         onCancel={() => setConfirmSkip(null)}
         onConfirm={confirmSkipNow}
+      />
+
+      <ConfirmModal
+        visible={!!confirmStop}
+        title="Stop this task?"
+        message={confirmStop ? `"${confirmStop.name}" will count as attempted but not finished.` : ""}
+        confirmLabel="Stop"
+        T={T}
+        onCancel={() => setConfirmStop(null)}
+        onConfirm={confirmStopNow}
       />
     </View>
   );
@@ -507,10 +726,18 @@ const styles = StyleSheet.create({
   focusBtn:      { borderRadius: 10, marginTop: 16, padding: 13, alignItems: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 },
   focusBtnText:  { fontFamily: "Montserrat_700Bold", fontSize: 12, color: "#fff", letterSpacing: 2, textTransform: "uppercase" },
 
+  heroActionsRow: { flexDirection: "row", gap: 8, marginTop: 16 },
+  actionBtn:      { flex: 1, borderRadius: 10, padding: 13, alignItems: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 },
+  stopBtn:        { backgroundColor: "transparent", borderWidth: 1.5, shadowOpacity: 0, elevation: 0 },
+  focusLink:      { alignItems: "center", marginTop: 12 },
+  focusLinkText:  { fontFamily: "Montserrat_600SemiBold", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase" },
+
   emptyIcon:     { fontFamily: "Montserrat_700Bold", fontSize: 28 },
   emptyText:     { fontFamily: "Montserrat_600SemiBold", fontSize: 15 },
 
+  listHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 18, marginBottom: 10 },
   listLabel:     { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: 10, marginTop: 18 },
+  chevron:       { fontFamily: "Montserrat_700Bold", fontSize: 12 },
 
   taskRow:       { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
   taskDone:      { opacity: 0.4 },
@@ -525,8 +752,10 @@ const styles = StyleSheet.create({
   noteSaveBtn:   { alignSelf: "flex-start", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
   noteSaveBtnText: { fontFamily: "Montserrat_700Bold", fontSize: 10, color: "#fff", textTransform: "uppercase", letterSpacing: 1 },
 
-  skippedRow:    { paddingVertical: 6 },
-  skippedText:   { fontFamily: "Montserrat_500Medium", fontSize: 12, textDecorationLine: "line-through" },
+  resolvedRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 6 },
+  resolvedText:  { fontFamily: "Montserrat_500Medium", fontSize: 12 },
+  struck:        { textDecorationLine: "line-through" },
+  resolvedTag:   { fontFamily: "Montserrat_600SemiBold", fontSize: 9, letterSpacing: 1, textTransform: "uppercase" },
 
   footer:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingBottom: 16, borderBottomWidth: 1 },
   footerLeft:    { fontFamily: "Montserrat_600SemiBold", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" },

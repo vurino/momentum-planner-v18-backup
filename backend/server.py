@@ -25,6 +25,7 @@ db = client[os.environ['DB_NAME']]
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _backfill_daily_task_names(db)
+    await _heal_premature_skips(db)
     await generate_tasks_for_date(db, date.today())
     init_scheduler(db)
     yield
@@ -47,6 +48,7 @@ class ScheduleSlot(BaseModel):
     group: str = "general"
     order_index: int
     days: List[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])  # Days when this slot is active
+    specific_date: Optional[str] = None  # One-off task: runs only on this YYYY-MM-DD; days is ignored
     notes: Optional[str] = None  # Optional notes field
 
 class ScheduleSlotCreate(BaseModel):
@@ -57,6 +59,7 @@ class ScheduleSlotCreate(BaseModel):
     group: str = "general"
     order_index: int
     days: List[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+    specific_date: Optional[str] = None
     notes: Optional[str] = None
 
 class ScheduleSlotUpdate(BaseModel):
@@ -67,6 +70,7 @@ class ScheduleSlotUpdate(BaseModel):
     group: Optional[str] = None
     order_index: Optional[int] = None
     days: Optional[List[str]] = None
+    specific_date: Optional[str] = None
     notes: Optional[str] = None
 
 class DailyTask(BaseModel):
@@ -74,17 +78,27 @@ class DailyTask(BaseModel):
     date: str  # YYYY-MM-DD format
     slot_id: str
     completed: bool = False
-    skipped: bool = False  # Excluded from totals/streak when true
+    skipped: bool = False       # Never attempted — counts against completion
+    stopped: bool = False       # Attempted but not finished — counts against completion
+    auto_skipped: bool = False  # Skip was applied automatically (window expired untouched)
     notes: Optional[str] = None  # Per-day notes for this task
     name: Optional[str] = None
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     duration: Optional[int] = None
+    started_at: Optional[str] = None    # ISO timestamp: user tapped Start
+    completed_at: Optional[str] = None  # ISO timestamp: marked complete
+    stopped_at: Optional[str] = None    # ISO timestamp: stopped (manual or auto)
 
 class DailyTaskUpdate(BaseModel):
     completed: Optional[bool] = None
     skipped: Optional[bool] = None
+    stopped: Optional[bool] = None
+    auto_skipped: Optional[bool] = None
     notes: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    stopped_at: Optional[str] = None
 
 class BulkSlotsUpdate(BaseModel):
     slots: List[ScheduleSlot]
@@ -183,6 +197,30 @@ async def _backfill_daily_task_names(mongo_db):
     )
 
 
+async def _heal_premature_skips(mongo_db):
+    """One-time repair for skips applied by the old UTC-date bug: the frontend
+    used the UTC calendar date while comparing task windows against the local
+    clock, so during a local evening it could fetch tomorrow's list and mass-skip
+    it. Those bad skips predate the auto_skipped marker, so any skipped-but-not-
+    completed task dated today-or-later without that marker gets unskipped.
+    New skips always carry auto_skipped (true for automatic, false for manual),
+    so they are never touched by this."""
+    today_server = datetime.utcnow().date().isoformat()
+    res = await mongo_db.daily_tasks.update_many(
+        {
+            "date": {"$gte": today_server},
+            "skipped": True,
+            "completed": False,
+            "auto_skipped": {"$exists": False},
+        },
+        {"$set": {"skipped": False}},
+    )
+    if res.modified_count:
+        logging.getLogger(__name__).info(
+            f"[Startup] Healed {res.modified_count} prematurely skipped tasks"
+        )
+
+
 # Routes
 @api_router.get("/")
 async def root():
@@ -208,6 +246,8 @@ async def get_schedule_slots():
             slot['days'] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
         if 'notes' not in slot:
             slot['notes'] = None
+        if 'specific_date' not in slot:
+            slot['specific_date'] = None
         result.append(ScheduleSlot(**slot))
     
     return result
@@ -225,7 +265,12 @@ async def update_schedule_slot(slot_id: str, slot_update: ScheduleSlotUpdate):
     update_data = {k: v for k, v in slot_update.model_dump().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No update data provided")
-    
+
+    # Empty string is the explicit "clear" sentinel for specific_date
+    # (None can't be used because None means "field not provided").
+    if update_data.get("specific_date") == "":
+        update_data["specific_date"] = None
+
     result = await db.schedule_slots.update_one(
         {"id": slot_id},
         {"$set": update_data}
@@ -289,19 +334,26 @@ async def get_daily_tasks(date_str: str):
             slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
         
         for slot in slots:
-            # Only create task if slot is active for this day of week
-            slot_days = slot.get('days', ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
-            if day_abbr in slot_days:
-                task = DailyTask(
-                    date=date_str,
-                    slot_id=slot["id"],
-                    completed=False,
-                    name=slot.get("label"),
-                    start_time=slot.get("start_time"),
-                    end_time=slot.get("end_time"),
-                    duration=_slot_duration_minutes(slot["start_time"], slot["end_time"]),
-                )
-                await db.daily_tasks.insert_one(task.model_dump())
+            # One-off slots only apply on their exact date; recurring slots
+            # apply on their configured weekdays.
+            specific = slot.get('specific_date')
+            if specific:
+                if specific != date_str:
+                    continue
+            else:
+                slot_days = slot.get('days', ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+                if day_abbr not in slot_days:
+                    continue
+            task = DailyTask(
+                date=date_str,
+                slot_id=slot["id"],
+                completed=False,
+                name=slot.get("label"),
+                start_time=slot.get("start_time"),
+                end_time=slot.get("end_time"),
+                duration=_slot_duration_minutes(slot["start_time"], slot["end_time"]),
+            )
+            await db.daily_tasks.insert_one(task.model_dump())
         
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
 
@@ -310,19 +362,31 @@ async def get_daily_tasks(date_str: str):
 
 @api_router.patch("/daily-tasks/{task_id}", response_model=DailyTask)
 @api_router.put("/daily-tasks/{task_id}", response_model=DailyTask)
-async def update_daily_task(task_id: str, task_update: DailyTaskUpdate):
-    """Update a daily task (toggle completion or update notes)"""
+async def update_daily_task(task_id: str, task_update: DailyTaskUpdate, client_today: Optional[str] = None):
+    """Update a daily task (status, timestamps, or notes).
+
+    client_today is the caller's local date (YYYY-MM-DD); status changes on
+    dates after it are rejected — you can't complete/stop/skip a future task.
+    Without it, a lenient UTC+1day bound is used (server can't know the
+    caller's timezone)."""
     update_data = {k: v for k, v in task_update.model_dump().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No update data provided")
 
-    result = await db.daily_tasks.update_one(
+    existing = await db.daily_tasks.find_one({"id": task_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    status_keys = {"completed", "skipped", "stopped"}
+    if status_keys & set(update_data.keys()):
+        limit = client_today or (datetime.utcnow().date() + timedelta(days=1)).isoformat()
+        if existing["date"] > limit:
+            raise HTTPException(status_code=400, detail="Cannot set task status for a future date")
+
+    await db.daily_tasks.update_one(
         {"id": task_id},
         {"$set": update_data}
     )
-
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Task not found")
 
     updated_task = await db.daily_tasks.find_one({"id": task_id})
     enriched = await _enrich_tasks_with_slot_info([updated_task])
@@ -338,7 +402,8 @@ async def get_daily_progress(date_str: str):
         await get_daily_tasks(date_str)
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
 
-    tasks = [t for t in tasks if not t.get("skipped", False)]
+    # Every listed task counts toward the total — skipped and stopped tasks
+    # lower the day's percentage rather than shrinking the denominator.
     total = len(tasks)
     completed = sum(1 for t in tasks if t.get("completed", False))
     percentage = round((completed / total * 100) if total > 0 else 0)
@@ -361,7 +426,6 @@ async def get_monthly_progress(year: int, month: int):
     for day in range(1, num_days + 1):
         date_str = f"{year:04d}-{month:02d}-{day:02d}"
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
-        tasks = [t for t in tasks if not t.get("skipped", False)]
 
         if tasks:
             total = len(tasks)
@@ -409,7 +473,6 @@ async def get_weekly_summary(date_str: str, week_starts_monday: bool = True):
         day_date = week_start + timedelta(days=i)
         day_str = day_date.strftime("%Y-%m-%d")
         tasks = await db.daily_tasks.find({"date": day_str}).to_list(100)
-        tasks = [t for t in tasks if not t.get("skipped", False)]
 
         if tasks:
             total = len(tasks)
@@ -460,17 +523,28 @@ logger = logging.getLogger(__name__)
 
 
 
+def _parse_client_today(today: Optional[str]):
+    """The caller's local date, falling back to server UTC. The frontend passes
+    its own calendar date so day boundaries follow the user's timezone, not
+    the server's."""
+    if today:
+        try:
+            return date.fromisoformat(today)
+        except ValueError:
+            pass
+    return datetime.utcnow().date()
+
+
 @app.get("/api/history")
-async def get_history(days: int = 7):
+async def get_history(days: int = 7, today: Optional[str] = None):
     records = []
-    today = datetime.utcnow().date()
+    base = _parse_client_today(today)
 
     for i in range(days):
-        d = today - timedelta(days=i)
+        d = base - timedelta(days=i)
         date_str = d.isoformat()
 
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(None)
-        tasks = [t for t in tasks if not t.get("skipped", False)]
         total = len(tasks)
         done  = sum(1 for t in tasks if t.get("completed", False))
         pct   = round((done / total * 100), 1) if total > 0 else 0.0
@@ -486,16 +560,15 @@ async def get_history(days: int = 7):
 
 
 @app.get("/api/streak")
-async def get_streak():
+async def get_streak(today: Optional[str] = None):
     streak = 0
-    today  = datetime.utcnow().date()
+    base = _parse_client_today(today)
 
     for i in range(365):
-        d = today - timedelta(days=i)
+        d = base - timedelta(days=i)
         date_str = d.isoformat()
 
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(None)
-        tasks = [t for t in tasks if not t.get("skipped", False)]
         if not tasks:
             continue
 

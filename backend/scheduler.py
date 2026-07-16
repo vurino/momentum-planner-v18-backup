@@ -34,15 +34,20 @@ async def generate_tasks_for_date(mongo_db, target_date: date) -> int:
  
     created = 0
     for slot in slots:
-        slot_days = slot.get("days", ["mon","tue","wed","thu","fri","sat","sun"])
-        if weekday_key not in slot_days:
-            continue
- 
+        specific = slot.get("specific_date")
+        if specific:
+            if specific != date_str:
+                continue
+        else:
+            slot_days = slot.get("days", ["mon","tue","wed","thu","fri","sat","sun"])
+            if weekday_key not in slot_days:
+                continue
+
         existing = await mongo_db.daily_tasks.find_one({
             "date": date_str,
             "slot_id": slot["id"],
         })
- 
+
         if not existing:
             task = {
                 "id": str(uuid.uuid4()),
@@ -50,11 +55,16 @@ async def generate_tasks_for_date(mongo_db, target_date: date) -> int:
                 "slot_id": slot["id"],
                 "completed": False,
                 "skipped": False,
+                "stopped": False,
+                "auto_skipped": False,
                 "notes": None,
                 "name": slot.get("label"),
                 "start_time": slot.get("start_time"),
                 "end_time": slot.get("end_time"),
                 "duration": _duration_minutes(slot["start_time"], slot["end_time"]),
+                "started_at": None,
+                "completed_at": None,
+                "stopped_at": None,
             }
             await mongo_db.daily_tasks.insert_one(task)
             created += 1
