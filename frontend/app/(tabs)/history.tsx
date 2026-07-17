@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
+import HistoryTrends from "../../components/HistoryTrends";
 
 const BASE = "";
 
@@ -164,6 +165,7 @@ export default function HistoryScreen() {
   const [dayTasks, setDayTasks] = useState<DayTask[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [subTab, setSubTab] = useState<"overview" | "trends">("overview");
 
   const fetchData = useCallback(async () => {
     try {
@@ -311,6 +313,27 @@ export default function HistoryScreen() {
           <Text style={[s.title, { color: T.t1 }]}>History</Text>
         </View>
 
+        <View style={s.subTabRow}>
+          {(["overview", "trends"] as const).map(tab => {
+            const active = subTab === tab;
+            return (
+              <TouchableOpacity
+                key={tab}
+                style={[s.subTabBtn, { borderColor: T.border }, active && { backgroundColor: T.orange, borderColor: T.orange }]}
+                onPress={() => setSubTab(tab)}
+              >
+                <Text style={[s.subTabText, { color: active ? "#fff" : T.t2 }]}>
+                  {tab === "overview" ? "Overview" : "Trends"}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {subTab === "trends" ? (
+          <HistoryTrends />
+        ) : (
+        <>
         {/* Month stats */}
         <View style={s.statsRow}>
           <StatCard value={`${monthAvg}%`}       label="Avg"     valueColor={T.orange}   T={T} />
@@ -488,6 +511,8 @@ export default function HistoryScreen() {
             </View>
           )}
         </View>
+        </>
+        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -510,6 +535,10 @@ const s = StyleSheet.create({
   header:        { paddingTop: 24, paddingBottom: 22 },
   eyebrow:       { fontFamily: "Montserrat_700Bold", fontSize: 11, letterSpacing: 4, textTransform: "uppercase", marginBottom: 6 },
   title:         { fontFamily: "Montserrat_700Bold", fontSize: 28, lineHeight: 34 },
+
+  subTabRow:     { flexDirection: "row", gap: 8, marginBottom: 20 },
+  subTabBtn:     { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 10, alignItems: "center" },
+  subTabText:    { fontFamily: "Montserrat_700Bold", fontSize: 12, textTransform: "uppercase", letterSpacing: 1 },
 
   statsRow:      { flexDirection: "row", gap: 8, marginBottom: 20 },
   statCard:      { flex: 1, borderWidth: 1, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center" },

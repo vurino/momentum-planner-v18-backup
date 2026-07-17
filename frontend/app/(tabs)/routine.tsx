@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 import ConfirmModal from "../../components/ConfirmModal";
 
@@ -571,6 +571,9 @@ function SlotModal({
 
 export default function RoutineScreen() {
   const { T } = useSimpleTheme();
+  const params = useLocalSearchParams<{ editSlotId?: string }>();
+  const router = useRouter();
+  const handledEditParam = useRef<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<Slot> | null>(null);
@@ -639,6 +642,17 @@ export default function RoutineScreen() {
     setModalOpen(false);
     setEditing(null);
   };
+
+  useEffect(() => {
+    const targetId = params.editSlotId;
+    if (!targetId || loading || handledEditParam.current === targetId) return;
+    const slot = slots.find(s => s.id === targetId);
+    if (slot) {
+      handledEditParam.current = targetId;
+      openEdit(slot);
+      router.setParams({ editSlotId: undefined });
+    }
+  }, [params.editSlotId, loading, slots]);
 
   const saveSlot = async (data: Partial<Slot>) => {
     try {

@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
 from scheduler import init_scheduler, stop_scheduler, generate_tasks_for_date
+import analytics
 
 
 ROOT_DIR = Path(__file__).parent
@@ -317,8 +318,13 @@ async def reset_schedule_slots():
 
 # Daily Tasks endpoints
 @api_router.get("/daily-tasks/{date_str}", response_model=List[DailyTask])
-async def get_daily_tasks(date_str: str):
-    """Get daily tasks for a specific date. Creates tasks from template if they don't exist."""
+async def get_daily_tasks(date_str: str, client_today: Optional[str] = None):
+    """Get daily tasks for a specific date. Creates tasks from template if they don't exist.
+
+    client_today is the caller's local date (YYYY-MM-DD). When date_str is
+    strictly before it, that day is definitively over — any task still
+    sitting at completed=False/stopped=False/skipped=False was never
+    attempted, so it's resolved to skipped (auto_skipped) before returning."""
     tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
     
     # If no tasks exist for this date, create from template
@@ -355,6 +361,13 @@ async def get_daily_tasks(date_str: str):
             )
             await db.daily_tasks.insert_one(task.model_dump())
         
+        tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
+
+    if client_today and date_str < client_today:
+        await db.daily_tasks.update_many(
+            {"date": date_str, "completed": False, "stopped": False, "skipped": False},
+            {"$set": {"skipped": True, "auto_skipped": True}},
+        )
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
 
     tasks = await _enrich_tasks_with_slot_info(tasks)
@@ -417,12 +430,19 @@ async def get_daily_progress(date_str: str):
 
 @api_router.get("/monthly-progress/{year}/{month}")
 async def get_monthly_progress(year: int, month: int):
-    """Get progress summary for each day in a month"""
+    """Get progress summary for each day in a month.
+
+    Days with no daily_tasks records yet (the scheduler never ran that
+    night, or the date was never opened) are reported with tracked=False
+    and a total computed from the current Routine template, so the
+    calendar can tell "not tracked" apart from "tracked and incomplete"
+    instead of just showing them as empty."""
     import calendar
-    
+
     num_days = calendar.monthrange(year, month)[1]
     progress_data = []
-    
+    slots = await db.schedule_slots.find().to_list(100)
+
     for day in range(1, num_days + 1):
         date_str = f"{year:04d}-{month:02d}-{day:02d}"
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
@@ -435,17 +455,30 @@ async def get_monthly_progress(year: int, month: int):
                 "day": day,
                 "total": total,
                 "completed": completed,
-                "percentage": round((completed / total * 100) if total > 0 else 0)
+                "percentage": round((completed / total * 100) if total > 0 else 0),
+                "tracked": True,
             })
         else:
+            day_abbr = get_day_abbr(date_str)
+            expected = 0
+            for slot in slots:
+                specific = slot.get("specific_date")
+                if specific:
+                    if specific == date_str:
+                        expected += 1
+                else:
+                    slot_days = slot.get("days", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+                    if day_abbr in slot_days:
+                        expected += 1
             progress_data.append({
                 "date": date_str,
                 "day": day,
-                "total": 0,
+                "total": expected,
                 "completed": 0,
-                "percentage": 0
+                "percentage": 0,
+                "tracked": False,
             })
-    
+
     return progress_data
 
 @api_router.get("/weekly-summary/{date_str}")
@@ -581,6 +614,80 @@ async def get_streak(today: Optional[str] = None):
         streak += 1
 
     return {"streak": streak}
+
+
+@app.get("/api/analytics/trends")
+async def get_analytics_trends(
+    range: int = 30,
+    client_now: Optional[str] = None,
+    tz_offset_minutes: int = 0,
+):
+    """Follow-Through / Lost Time by Activity / Time of Day Performance for
+    the History Trends tab. All shared math lives in analytics.py; this
+    endpoint only fetches the raw range and wires the three trends together.
+
+    client_now is the caller's local timestamp (YYYY-MM-DDTHH:MM[:SS]) —
+    both the day boundary and, for today specifically, whether a still-open
+    task's scheduled window has already closed depend on it. Without it we
+    fall back to server UTC, which will misjudge "today" for users behind
+    or ahead of UTC exactly like every other client_today fallback in this
+    file — callers should always pass it."""
+    range_days = range if range in (7, 30, 90) else 30
+
+    if client_now:
+        try:
+            now_dt = datetime.fromisoformat(client_now)
+        except ValueError:
+            now_dt = datetime.utcnow()
+    else:
+        now_dt = datetime.utcnow()
+
+    client_today = now_dt.date().isoformat()
+    now_minutes = now_dt.hour * 60 + now_dt.minute
+
+    range_start = (now_dt.date() - timedelta(days=range_days - 1)).isoformat()
+    raw_tasks = await db.daily_tasks.find(
+        {"date": {"$gte": range_start, "$lte": client_today}}
+    ).to_list(100000)
+
+    tasks = [analytics.normalize_task(t, client_today, now_minutes) for t in raw_tasks]
+
+    buckets = analytics.build_buckets(tasks, range_days, client_today)
+    for b in buckets:
+        b["metrics"] = analytics.compute_metrics(b["tasks"], tz_offset_minutes)
+        del b["tasks"]
+    summary = analytics.compute_metrics(tasks, tz_offset_minutes)
+    adherence_evidence = analytics.evidence_level(summary["scheduled_count"], activity_specific=False)
+    adherence = {
+        "buckets": buckets,
+        "summary": summary,
+        "insight": analytics.adherence_insight(
+            [{"metrics": b["metrics"]} for b in buckets], summary
+        ),
+        "evidence": adherence_evidence,
+    }
+
+    friction = analytics.build_friction(tasks, tz_offset_minutes)
+
+    # Chain constraint: a healthy overall trend implies friction/temporal
+    # shouldn't manufacture a problem out of noise.
+    if adherence["insight"]["key"] == "stable" and friction["selected"] is not None:
+        top = friction["selected"]
+        if top["scheduled_count"] < 5 or (top["completion_rate"] or 0) >= 70:
+            friction = {**friction, "selected": None, "general_issue": False,
+                        "insight": analytics.friction_insight(None, False, friction["activities"])}
+
+    temporal = analytics.build_temporal(
+        tasks, friction["selected"], friction["general_issue"], tz_offset_minutes
+    )
+
+    return {
+        "range": range_days,
+        "aggregation": "daily" if range_days <= 7 else "weekly",
+        "adherence": adherence,
+        "friction": friction,
+        "temporal": temporal,
+    }
 
 
 @app.get("/api/export")
