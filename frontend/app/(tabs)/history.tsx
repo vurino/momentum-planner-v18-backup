@@ -9,7 +9,7 @@ import { useFocusEffect } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 import HistoryTrends from "../../components/HistoryTrends";
 
-const BASE = "";
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -470,7 +470,7 @@ export default function HistoryScreen() {
                   </Text>
                   {isFutureSelected && (
                     <Text style={[s.futureNote, { color: T.t3 }]}>
-                      This date hasn't happened yet — status can't be set.
+                      This date has not happened yet — status cannot be set.
                     </Text>
                   )}
                   {dayTasks.map((task, i) => {

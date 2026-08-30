@@ -10,7 +10,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme, SPACING, RADIUS, FONT } from '../context/ThemeContext';
 
 const { width: SW } = Dimensions.get('window');
-const BASE = "";
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
 const iconMap: Record<string, string> = {
   'restaurant': 'restaurant-outline', 'sunny': 'sunny-outline', 'briefcase': 'briefcase-outline',
@@ -253,7 +253,7 @@ export default function FocusScreen() {
           ) : (
             <View style={styles.completedWrap}>
               <Ionicons name="time-outline" size={64} color="#7080a0" />
-              <Text style={[styles.completedText, { color: '#a0b0c4' }]}>Time's up</Text>
+              <Text style={[styles.completedText, { color: '#a0b0c4' }]}>Time is up</Text>
               <Text style={[styles.outcomeSub, { color: '#7080a0' }]}>
                 Not marked done — counted as skipped
               </Text>

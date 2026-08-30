@@ -190,11 +190,17 @@ async def _backfill_daily_task_names(mongo_db):
             )
             fixed += 1
         else:
-            await mongo_db.daily_tasks.delete_one({"id": t["id"]})
-            dropped += 1
+            # Mark orphaned tasks instead of deleting them
+            # They will be filtered out in queries but preserved for data integrity
+            if not t.get("orphaned"):
+                await mongo_db.daily_tasks.update_one(
+                    {"id": t["id"]},
+                    {"$set": {"orphaned": True, "name": t.get("name", "Deleted Task")}},
+                )
+                dropped += 1
 
     logging.getLogger(__name__).info(
-        f"[Startup] Backfilled {fixed} daily tasks, dropped {dropped} orphaned tasks"
+        f"[Startup] Backfilled {fixed} daily tasks, marked {dropped} orphaned tasks"
     )
 
 
@@ -232,14 +238,7 @@ async def root():
 async def get_schedule_slots():
     """Get all schedule slots (template)"""
     slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
-    
-    # If no slots exist, create default schedule
-    if not slots:
-        for slot_data in DEFAULT_SCHEDULE:
-            slot = ScheduleSlot(**slot_data)
-            await db.schedule_slots.insert_one(slot.model_dump())
-        slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
-    
+
     # Ensure all slots have the 'days' field (migration for existing data)
     result = []
     for slot in slots:
@@ -250,7 +249,7 @@ async def get_schedule_slots():
         if 'specific_date' not in slot:
             slot['specific_date'] = None
         result.append(ScheduleSlot(**slot))
-    
+
     return result
 
 @api_router.post("/schedule-slots", response_model=ScheduleSlot)
@@ -276,10 +275,10 @@ async def update_schedule_slot(slot_id: str, slot_update: ScheduleSlotUpdate):
         {"id": slot_id},
         {"$set": update_data}
     )
-    
+
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Slot not found")
-    
+
     updated_slot = await db.schedule_slots.find_one({"id": slot_id})
     return ScheduleSlot(**updated_slot)
 
@@ -296,22 +295,22 @@ async def bulk_update_slots(data: BulkSlotsUpdate):
     """Bulk update/replace all schedule slots"""
     # Clear existing slots
     await db.schedule_slots.delete_many({})
-    
+
     # Insert new slots
     for slot in data.slots:
         await db.schedule_slots.insert_one(slot.model_dump())
-    
+
     return {"message": "Slots updated successfully", "count": len(data.slots)}
 
 @api_router.post("/schedule-slots/reset")
 async def reset_schedule_slots():
     """Reset schedule slots to default"""
     await db.schedule_slots.delete_many({})
-    
+
     for slot_data in DEFAULT_SCHEDULE:
         slot = ScheduleSlot(**slot_data)
         await db.schedule_slots.insert_one(slot.model_dump())
-    
+
     slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
     return [ScheduleSlot(**slot) for slot in slots]
 
@@ -326,20 +325,26 @@ async def get_daily_tasks(date_str: str, client_today: Optional[str] = None):
     sitting at completed=False/stopped=False/skipped=False was never
     attempted, so it's resolved to skipped (auto_skipped) before returning."""
     tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
-    
-    # If no tasks exist for this date, create from template
-    if not tasks:
+
+    # If this exact date was explicitly cleared via "Clear today's tasks" in
+    # Settings, don't bring back tasks for the activities that existed at
+    # that moment — but a genuinely new activity created afterward (a fresh
+    # slot_id) should still show up normally, so the check is per-slot, not
+    # a blanket "skip everything for this date."
+    cleared_marker = await db.app_meta.find_one({"key": "cleared_today_date"})
+    was_cleared = bool(cleared_marker and cleared_marker.get("value") == date_str)
+    cleared_slot_ids = set(cleared_marker.get("slot_ids", [])) if was_cleared else set()
+
+    if not tasks or was_cleared:
         day_abbr = get_day_abbr(date_str)
         slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
-        
-        # If no slots exist, get defaults
-        if not slots:
-            for slot_data in DEFAULT_SCHEDULE:
-                slot = ScheduleSlot(**slot_data)
-                await db.schedule_slots.insert_one(slot.model_dump())
-            slots = await db.schedule_slots.find().sort("order_index", 1).to_list(100)
-        
+        existing_slot_ids = {t["slot_id"] for t in tasks}
+
         for slot in slots:
+            if slot["id"] in existing_slot_ids:
+                continue  # already has a task for this date
+            if was_cleared and slot["id"] in cleared_slot_ids:
+                continue  # deliberately cleared for today; don't bring it back
             # One-off slots only apply on their exact date; recurring slots
             # apply on their configured weekdays.
             specific = slot.get('specific_date')
@@ -360,7 +365,7 @@ async def get_daily_tasks(date_str: str, client_today: Optional[str] = None):
                 duration=_slot_duration_minutes(slot["start_time"], slot["end_time"]),
             )
             await db.daily_tasks.insert_one(task.model_dump())
-        
+
         tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
 
     if client_today and date_str < client_today:
@@ -409,7 +414,7 @@ async def update_daily_task(task_id: str, task_update: DailyTaskUpdate, client_t
 async def get_daily_progress(date_str: str):
     """Get progress summary for a specific date"""
     tasks = await db.daily_tasks.find({"date": date_str}).to_list(100)
-    
+
     if not tasks:
         # Get tasks (this will create them if they don't exist)
         await get_daily_tasks(date_str)
@@ -485,9 +490,9 @@ async def get_monthly_progress(year: int, month: int):
 async def get_weekly_summary(date_str: str, week_starts_monday: bool = True):
     """Get weekly summary (7 days ending on the given date or a Mon-Sun/Sun-Sat week)"""
     from datetime import datetime, timedelta
-    
+
     end_date = datetime.strptime(date_str, "%Y-%m-%d")
-    
+
     # Calculate the start of the week based on preference
     if week_starts_monday:
         # Find the Monday of this week
@@ -499,9 +504,9 @@ async def get_weekly_summary(date_str: str, week_starts_monday: bool = True):
         days_since_sunday = (end_date.weekday() + 1) % 7
         week_start = end_date - timedelta(days=days_since_sunday)
         week_end = week_start + timedelta(days=6)
-    
+
     weekly_data = []
-    
+
     for i in range(7):
         day_date = week_start + timedelta(days=i)
         day_str = day_date.strftime("%Y-%m-%d")
@@ -515,7 +520,7 @@ async def get_weekly_summary(date_str: str, week_starts_monday: bool = True):
             total = 0
             completed = 0
             percentage = 0
-        
+
         weekly_data.append({
             "date": day_str,
             "day_abbr": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day_date.weekday()],
@@ -523,11 +528,11 @@ async def get_weekly_summary(date_str: str, week_starts_monday: bool = True):
             "completed": completed,
             "percentage": percentage
         })
-    
+
     # Calculate average
     days_with_data = [d for d in weekly_data if d["total"] > 0]
     avg_percentage = round(sum(d["percentage"] for d in days_with_data) / len(days_with_data)) if days_with_data else 0
-    
+
     return {
         "days": weekly_data,
         "average_percentage": avg_percentage,
@@ -622,9 +627,12 @@ async def get_analytics_trends(
     client_now: Optional[str] = None,
     tz_offset_minutes: int = 0,
 ):
-    """Follow-Through / Lost Time by Activity / Time of Day Performance for
-    the History Trends tab. All shared math lives in analytics.py; this
-    endpoint only fetches the raw range and wires the three trends together.
+    """Three independent diagnostics — Follow-Through, Lost Time by
+    Activity, Time of Day Performance — plus one final combined
+    recommendation, for the History Trends tab. Each graph's diagnostic
+    logic lives in analytics.py and returns exactly one key from its own
+    fixed set; a separate combination engine (also in analytics.py) turns
+    those three diagnostics into the single suggestion shown at the bottom.
 
     client_now is the caller's local timestamp (YYYY-MM-DDTHH:MM[:SS]) —
     both the day boundary and, for today specifically, whether a still-open
@@ -652,41 +660,40 @@ async def get_analytics_trends(
 
     tasks = [analytics.normalize_task(t, client_today, now_minutes) for t in raw_tasks]
 
-    buckets = analytics.build_buckets(tasks, range_days, client_today)
-    for b in buckets:
+    display_buckets = analytics.build_display_buckets(tasks, range_days, client_today)
+    for b in display_buckets:
         b["metrics"] = analytics.compute_metrics(b["tasks"], tz_offset_minutes)
         del b["tasks"]
-    summary = analytics.compute_metrics(tasks, tz_offset_minutes)
-    adherence_evidence = analytics.evidence_level(summary["scheduled_count"], activity_specific=False)
-    adherence = {
-        "buckets": buckets,
-        "summary": summary,
-        "insight": analytics.adherence_insight(
-            [{"metrics": b["metrics"]} for b in buckets], summary
-        ),
-        "evidence": adherence_evidence,
-    }
+    heavy_pattern = analytics.compute_heavy_day_pattern(tasks)
 
-    friction = analytics.build_friction(tasks, tz_offset_minutes)
+    ft_diag = analytics.follow_through_diagnosis(tasks, range_days, client_today, display_buckets, heavy_pattern)
+    follow_through = {"buckets": display_buckets, "diagnostic": ft_diag}
 
-    # Chain constraint: a healthy overall trend implies friction/temporal
-    # shouldn't manufacture a problem out of noise.
-    if adherence["insight"]["key"] == "stable" and friction["selected"] is not None:
-        top = friction["selected"]
-        if top["scheduled_count"] < 5 or (top["completion_rate"] or 0) >= 70:
-            friction = {**friction, "selected": None, "general_issue": False,
-                        "insight": analytics.friction_insight(None, False, friction["activities"])}
+    lost_time = analytics.lost_time_diagnosis(tasks, tz_offset_minutes)
 
-    temporal = analytics.build_temporal(
-        tasks, friction["selected"], friction["general_issue"], tz_offset_minutes
+    # Narrow, deliberate exception to "never touch live schedule_slots for
+    # analytics": Time of Day Performance needs to know what time the
+    # selected activity is scheduled at *right now* to compare current vs.
+    # alternative periods. This never changes any historical task record —
+    # it's a one-field lookup purely to answer "where does this sit today."
+    current_slot_start_time = None
+    if lost_time["selected"]:
+        current_slot = await db.schedule_slots.find_one({"id": lost_time["selected"]["slot_id"]})
+        if current_slot:
+            current_slot_start_time = current_slot.get("start_time")
+
+    time_of_day = analytics.time_of_day_diagnosis(
+        tasks, lost_time["selected"], current_slot_start_time, tz_offset_minutes
     )
+
+    recommendation = analytics.combine_diagnostics(ft_diag, lost_time, time_of_day, range_days)
 
     return {
         "range": range_days,
-        "aggregation": "daily" if range_days <= 7 else "weekly",
-        "adherence": adherence,
-        "friction": friction,
-        "temporal": temporal,
+        "follow_through": follow_through,
+        "lost_time": lost_time,
+        "time_of_day": time_of_day,
+        "recommendation": recommendation,
     }
 
 
@@ -741,5 +748,52 @@ async def import_data(payload: ImportData):
 
 @app.delete("/api/reset")
 async def reset_all_data():
-    result = await db.daily_tasks.delete_many({})
-    return {"deleted": result.deleted_count}
+    """Wipes everything: all daily task history/completions AND the Routine
+    template itself, leaving a genuinely empty app (no activities, so
+    Today and History have nothing to generate tasks from either)."""
+    tasks_result = await db.daily_tasks.delete_many({})
+    slots_result = await db.schedule_slots.delete_many({})
+
+    return {
+        "deleted_tasks": tasks_result.deleted_count,
+        "deleted_slots": slots_result.deleted_count,
+    }
+
+
+@app.delete("/api/reset/today")
+async def reset_today_tasks(client_today: Optional[str] = None):
+    """Deletes only current/future daily_tasks (today onward), leaving every
+    past-dated task (History, Trends) and the Routine template untouched.
+
+    Also records which activities existed in Routine at this exact moment,
+    so get_daily_tasks above knows specifically which ones not to bring
+    back — without this, viewing Today would immediately regenerate every
+    one of them right back, since that view is itself the read that
+    triggers lazy regeneration. Anything you add to Routine after clearing
+    is a new slot_id and isn't in this snapshot, so it still shows up
+    normally; the marker only ever matches one exact date string, so
+    tomorrow (or any date you view before clearing again) is unaffected."""
+    today = client_today or datetime.utcnow().date().isoformat()
+    result = await db.daily_tasks.delete_many({"date": {"$gte": today}})
+    existing_slots = await db.schedule_slots.find({}, {"id": 1}).to_list(1000)
+    await db.app_meta.update_one(
+        {"key": "cleared_today_date"},
+        {"$set": {
+            "key": "cleared_today_date",
+            "value": today,
+            "slot_ids": [s["id"] for s in existing_slots],
+        }},
+        upsert=True,
+    )
+    return {"deleted_tasks": result.deleted_count}
+
+
+@app.delete("/api/reset/routine")
+async def reset_routine_only():
+    """Deletes only the Routine template (schedule_slots). All daily_tasks
+    history is untouched — past records already carry their own baked-in
+    name/start_time/end_time/duration (see _backfill_daily_task_names), so
+    History and Trends stay accurate even once the originating activity no
+    longer exists in Routine."""
+    result = await db.schedule_slots.delete_many({})
+    return {"deleted_slots": result.deleted_count}

@@ -19,7 +19,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 import ConfirmModal from "../../components/ConfirmModal";
 
-const BASE = "";
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 const SCROLL_ID = "routine-scroll";
 
 interface Slot {
@@ -591,8 +591,12 @@ export default function RoutineScreen() {
     layoutSnapshot: Record<string, { y: number; height: number }>;
   } | null>(null);
   const [previewChanges, setPreviewChanges] = useState<Record<string, { start_time: string; end_time: string }> | null>(null);
-  const [undoSnapshot, setUndoSnapshot] = useState<{ id: string; start_time: string; end_time: string }[] | null>(null);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dropBeforeId, setDropBeforeId] = useState<string | "END" | null>(null);
+  // A stack of reorder steps, most recent last. Undo always reverts the
+  // last step and pops it, so repeated presses walk back through history.
+  // Persists for as long as the user stays on this screen — cleared on
+  // blur, not on a timer.
+  const [undoStack, setUndoStack] = useState<{ id: string; start_time: string; end_time: string }[][]>([]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -603,10 +607,6 @@ export default function RoutineScreen() {
     `;
     document.head.appendChild(style);
     return () => { document.head.removeChild(style); };
-  }, []);
-
-  useEffect(() => () => {
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   }, []);
 
   const fetchSlots = useCallback(async () => {
@@ -625,6 +625,7 @@ export default function RoutineScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchSlots();
+      return () => setUndoStack([]);
     }, [fetchSlots])
   );
 
@@ -715,6 +716,7 @@ export default function RoutineScreen() {
     dragY.setValue(0);
     setDraggingId(slot.id);
     setScrollEnabled(false);
+    setDropBeforeId(null);
   }, [dragY]);
 
   const handleDragMove = useCallback((dy: number) => {
@@ -727,11 +729,14 @@ export default function RoutineScreen() {
     const targetIdx = findInsertIndex(ctx.othersSnapshot, ctx.layoutSnapshot, absCenter);
     const changes = computeReflow(ctx.othersSnapshot, ctx.dragged, ctx.oldIndexInOthers, targetIdx);
     setPreviewChanges(changes);
+    const dropSlot = ctx.othersSnapshot[targetIdx];
+    setDropBeforeId(dropSlot ? dropSlot.id : "END");
   }, [dragY]);
 
   const handleDragRelease = useCallback(() => {
     setDraggingId(null);
     setScrollEnabled(true);
+    setDropBeforeId(null);
     dragY.setValue(0);
     const ctx = dragCtx.current;
     dragCtx.current = null;
@@ -747,9 +752,7 @@ export default function RoutineScreen() {
           return { id, start_time: orig.start_time, end_time: orig.end_time };
         });
 
-        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-        setUndoSnapshot(snapshot);
-        undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 6000);
+        setUndoStack(prev => [...prev, snapshot]);
 
         Promise.all(Object.entries(currentChanges).map(([id, ch]) =>
           fetch(`${BASE}/api/schedule-slots/${id}`, {
@@ -767,16 +770,49 @@ export default function RoutineScreen() {
     });
   }, [dragY]);
 
+  // PanResponder never reliably engages on the web build here — the browser's
+  // own touch/mouse handling wins before the RN responder system gets a
+  // look-in, which is why dragging did nothing at all. On web we bypass
+  // PanResponder entirely and drive the same handleDragGrant/Move/Release
+  // logic from raw mouse/touch listeners attached directly to the window,
+  // which is the reliable way to track a drag once it leaves the grip icon.
+  const startWebDrag = useCallback((slot: Slot, clientY: number) => {
+    if (Platform.OS !== "web") return;
+    handleDragGrant(slot);
+    const startY = clientY;
+
+    const onMove = (e: any) => {
+      const y = e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY;
+      if (typeof y !== "number") return;
+      if (e.cancelable) e.preventDefault();
+      handleDragMove(y - startY);
+    };
+    const onUp = () => {
+      handleDragRelease();
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+      window.removeEventListener("touchcancel", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onUp);
+    window.addEventListener("touchcancel", onUp);
+  }, [handleDragGrant, handleDragMove, handleDragRelease]);
+
   const handleUndo = useCallback(() => {
-    setUndoSnapshot(currentSnap => {
-      if (!currentSnap) return null;
-      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoStack(prevStack => {
+      if (prevStack.length === 0) return prevStack;
+      const step = prevStack[prevStack.length - 1];
 
       setSlots(prevSlots => {
         const map: Record<string, { start_time: string; end_time: string }> = {};
-        currentSnap.forEach(s => { map[s.id] = { start_time: s.start_time, end_time: s.end_time }; });
+        step.forEach(s => { map[s.id] = { start_time: s.start_time, end_time: s.end_time }; });
 
-        Promise.all(currentSnap.map(s =>
+        Promise.all(step.map(s =>
           fetch(`${BASE}/api/schedule-slots/${s.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -788,7 +824,7 @@ export default function RoutineScreen() {
         return [...next].sort((a, b) => a.start_time.localeCompare(b.start_time));
       });
 
-      return null;
+      return prevStack.slice(0, -1);
     });
   }, []);
 
@@ -873,77 +909,107 @@ export default function RoutineScreen() {
           const isOneOffSlot = !!slot.specific_date;
           const isDraggingThis = draggingId === slot.id;
 
-          const panResponder = canDrag ? PanResponder.create({
+          // PanResponder is only used on native (iOS/Android), where it
+          // works reliably. On web, startWebDrag drives the same drag
+          // logic from raw mouse/touch listeners instead — see its comment
+          // for why.
+          const panResponder = canDrag && Platform.OS !== "web" ? PanResponder.create({
             onStartShouldSetPanResponder: () => true,
+            onStartShouldSetPanResponderCapture: () => true,
+            onMoveShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponderCapture: () => true,
+            onPanResponderTerminationRequest: () => false,
             onPanResponderGrant: () => handleDragGrant(slot),
             onPanResponderMove: (_e, gesture) => handleDragMove(gesture.dy),
             onPanResponderRelease: () => handleDragRelease(),
             onPanResponderTerminate: () => handleDragRelease(),
           }) : null;
 
-          return (
-            <View
-              key={slot.id}
-              onLayout={(e) => {
-                rowLayouts.current[slot.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height };
-              }}
-              style={[
-                s.item,
-                { backgroundColor: T.surface, borderColor: T.border },
-                isDraggingThis && {
-                  transform: [{ translateY: dragY }],
-                  zIndex: 999,
-                  elevation: 12,
-                  shadowColor: "#000",
-                  shadowOpacity: 0.25,
-                  shadowRadius: 10,
-                  shadowOffset: { width: 0, height: 4 },
-                },
-              ] as any}
-            >
-              <TouchableOpacity style={s.itemBody} onPress={() => openEdit(slot)} activeOpacity={0.7}>
-                <View style={s.itemInfo}>
-                  <View style={s.itemNameRow}>
-                    <Text style={[s.itemName, { color: T.t1 }]}>{slot.label}</Text>
-                    {!!slot.notes && <View style={[s.noteDot, { backgroundColor: T.orange }]} />}
-                  </View>
-                  <Text style={[s.itemMeta, { color: T.t2 }]}>
-                    {slot.start_time} · {formatDur(duration)}
-                    {isOneOffSlot ? ` · ${formatSpecificDateShort(slot.specific_date!)}` : ""}
-                  </Text>
-                </View>
-                <View style={[s.badge, { borderColor: isOneOffSlot ? T.orange : T.border }]}>
-                  <Text style={[s.badgeText, { color: isOneOffSlot ? T.orange : T.t2 }]}>
-                    {isOneOffSlot ? "One-off" : recurrenceLabel(slot.days)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+          const webDragHandlers: any = canDrag && Platform.OS === "web" ? {
+            onMouseDown: (e: any) => { e.preventDefault?.(); startWebDrag(slot, e.clientY); },
+            onTouchStart: (e: any) => {
+              const t = e.touches && e.touches[0];
+              if (t) startWebDrag(slot, t.clientY);
+            },
+          } : {};
 
-              {canDrag && (
-                <View
-                  {...(panResponder ? panResponder.panHandlers : {})}
-                  style={s.gripHandle}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="reorder-three-outline" size={20} color={T.t3} />
-                </View>
-              )}
-            </View>
+          const showLineBefore = draggingId !== null && dropBeforeId === slot.id;
+
+          return (
+            <React.Fragment key={slot.id}>
+              {showLineBefore && <View style={[s.dropLine, { backgroundColor: T.orange }]} />}
+              <View
+                onLayout={(e) => {
+                  rowLayouts.current[slot.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height };
+                }}
+                style={[
+                  s.item,
+                  { backgroundColor: T.surface, borderColor: T.border },
+                  isDraggingThis && {
+                    transform: [{ translateY: dragY }],
+                    zIndex: 999,
+                    elevation: 12,
+                    shadowColor: "#000",
+                    shadowOpacity: 0.25,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 4 },
+                  },
+                ] as any}
+              >
+                <TouchableOpacity style={s.itemBody} onPress={() => openEdit(slot)} activeOpacity={0.7}>
+                  <View style={s.itemInfo}>
+                    <View style={s.itemNameRow}>
+                      <Text style={[s.itemName, { color: T.t1 }]}>{slot.label}</Text>
+                      {!!slot.notes && <View style={[s.noteDot, { backgroundColor: T.orange }]} />}
+                    </View>
+                    <Text style={[s.itemMeta, { color: T.t2 }]}>
+                      {slot.start_time} · {formatDur(duration)}
+                      {isOneOffSlot ? ` · ${formatSpecificDateShort(slot.specific_date!)}` : ""}
+                    </Text>
+                  </View>
+                  <View style={[s.badge, { borderColor: isOneOffSlot ? T.orange : T.border }]}>
+                    <Text style={[s.badgeText, { color: isOneOffSlot ? T.orange : T.t2 }]}>
+                      {isOneOffSlot ? "One-off" : recurrenceLabel(slot.days)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {canDrag && (
+                  <View
+                    {...(panResponder ? panResponder.panHandlers : webDragHandlers)}
+                    style={s.gripHandle}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="reorder-three-outline" size={20} color={T.t3} />
+                  </View>
+                )}
+              </View>
+            </React.Fragment>
           );
         })}
+
+        {draggingId !== null && dropBeforeId === "END" && (
+          <View style={[s.dropLine, { backgroundColor: T.orange }]} />
+        )}
 
         <View style={{ height: 72 }} />
       </ScrollView>
 
       <LinearGradient colors={["transparent", T.bg]} style={s.fade} pointerEvents="none" />
 
-      {undoSnapshot && (
-        <View style={[s.undoToast, { backgroundColor: T.surface, borderColor: T.border }]}>
-          <Text style={[s.undoText, { color: T.t1 }]}>Order updated</Text>
-          <TouchableOpacity onPress={handleUndo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={[s.undoBtn, { color: T.orange }]}>Undo</Text>
-          </TouchableOpacity>
-        </View>
+      {undoStack.length > 0 && (
+        <TouchableOpacity
+          style={[s.fab, s.undoFab, { backgroundColor: T.orange }]}
+          onPress={handleUndo}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="arrow-undo" size={24} color="#fff" />
+          {undoStack.length > 1 && (
+            <View style={[s.undoBadge, { backgroundColor: T.bg, borderColor: T.orange }]}>
+              <Text style={[s.undoBadgeText, { color: T.orange }]}>{undoStack.length}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       )}
 
       <TouchableOpacity
@@ -991,6 +1057,7 @@ const s = StyleSheet.create({
   item: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6 },
   itemBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   gripHandle: { paddingLeft: 10, paddingVertical: 4 },
+  dropLine: { height: 3, borderRadius: 2, marginVertical: 5 },
   itemInfo: { flex: 1 },
   itemNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   itemName: { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
@@ -1016,26 +1083,20 @@ const s = StyleSheet.create({
     elevation: 6,
   },
 
-  undoToast: {
+  undoFab: { position: "absolute", left: 20, right: undefined, bottom: 28 },
+  undoBadge: {
     position: "absolute",
-    left: 20,
-    right: 20,
-    bottom: 96,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    flexDirection: "row",
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    paddingHorizontal: 4,
     alignItems: "center",
-    justifyContent: "space-between",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
+    justifyContent: "center",
   },
-  undoText: { fontFamily: "Montserrat_600SemiBold", fontSize: 13 },
-  undoBtn: { fontFamily: "Montserrat_700Bold", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 },
+  undoBadgeText: { fontFamily: "Montserrat_700Bold", fontSize: 11 },
 });
 
 const ms = StyleSheet.create({

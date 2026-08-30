@@ -16,7 +16,7 @@ import {
 import { notify } from "../../utils/confirm";
 import ConfirmModal from "../../components/ConfirmModal";
 
-const BASE = "";
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
 const APPEARANCE_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "light",  label: "Light" },
@@ -38,6 +38,18 @@ function todayStr() {
   return new Date().toISOString().split("T")[0];
 }
 
+// Separate, correct local-date helper — todayStr() above uses toISOString(),
+// which gives the UTC date, not the device's local date. That's harmless
+// for its current use (an export filename) but would be a real bug for
+// "clear today": near midnight, it could delete the wrong day's tasks for
+// anyone not on UTC — the exact class of bug _heal_premature_skips was
+// written to clean up on the backend.
+function localTodayStr() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export default function SettingsScreen() {
   const { T, themeMode, setThemeMode } = useSimpleTheme();
   const [prefs, setPrefs]         = useState<Prefs>(DEFAULTS);
@@ -47,6 +59,11 @@ export default function SettingsScreen() {
   const [importing, setImporting] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [pendingImport, setPendingImport] = useState<{ slots: any[]; tasks: any[]; fileName: string } | null>(null);
+
+  const [clearingToday, setClearingToday] = useState(false);
+  const [clearingRoutine, setClearingRoutine] = useState(false);
+  const [confirmClearToday, setConfirmClearToday] = useState(false);
+  const [confirmClearRoutine, setConfirmClearRoutine] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -112,12 +129,48 @@ export default function SettingsScreen() {
     setConfirmReset(false);
     setResetting(true);
     try {
-      await fetch(`${BASE}/api/reset`, { method: "DELETE" });
-      notify("Done", "All data has been wiped.");
-    } catch (e) {
-      notify("Error", "Could not reset. Check connection.");
+      const res = await fetch(`${BASE}/api/reset`, { method: "DELETE" });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.detail || `Server returned ${res.status}`);
+      }
+      const tasksDeleted = body?.deleted_tasks ?? "?";
+      const slotsDeleted = body?.deleted_slots ?? "?";
+      notify("Done", `Wiped ${tasksDeleted} tasks and ${slotsDeleted} activities.`);
+    } catch (e: any) {
+      notify("Reset failed", e?.message || "Could not reset. Check connection.");
     } finally {
       setResetting(false);
+    }
+  };
+
+  const confirmClearTodayNow = async () => {
+    setConfirmClearToday(false);
+    setClearingToday(true);
+    try {
+      const res = await fetch(`${BASE}/api/reset/today?client_today=${localTodayStr()}`, { method: "DELETE" });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.detail || `Server returned ${res.status}`);
+      notify("Done", `Cleared ${body?.deleted_tasks ?? "?"} current/upcoming tasks. History is untouched.`);
+    } catch (e: any) {
+      notify("Clear failed", e?.message || "Could not clear today's tasks. Check connection.");
+    } finally {
+      setClearingToday(false);
+    }
+  };
+
+  const confirmClearRoutineNow = async () => {
+    setConfirmClearRoutine(false);
+    setClearingRoutine(true);
+    try {
+      const res = await fetch(`${BASE}/api/reset/routine`, { method: "DELETE" });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.detail || `Server returned ${res.status}`);
+      notify("Done", `Cleared ${body?.deleted_slots ?? "?"} activities from Routine. History is untouched.`);
+    } catch (e: any) {
+      notify("Clear failed", e?.message || "Could not clear Routine. Check connection.");
+    } finally {
+      setClearingRoutine(false);
     }
   };
 
@@ -302,6 +355,39 @@ export default function SettingsScreen() {
             }
           </TouchableOpacity>
         </View>
+
+        <View style={[s.row, s.dangerRow, { backgroundColor: T.surface }]}>
+          <View style={s.rowInfo}>
+            <Text style={[s.rowLabel, { color: T.danger }]}>Clear today&apos;s tasks</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>Wipe current/upcoming tasks only — history stays</Text>
+          </View>
+          <TouchableOpacity
+            style={s.resetBtn}
+            onPress={() => setConfirmClearToday(true)}
+            disabled={clearingToday}
+          >
+            {clearingToday
+              ? <ActivityIndicator size="small" color={T.danger} />
+              : <Text style={[s.resetBtnText, { color: T.danger }]}>Clear</Text>
+            }
+          </TouchableOpacity>
+        </View>
+        <View style={[s.row, s.dangerRow, { backgroundColor: T.surface }]}>
+          <View style={s.rowInfo}>
+            <Text style={[s.rowLabel, { color: T.danger }]}>Clear Routine</Text>
+            <Text style={[s.rowSub, { color: T.t2 }]}>Wipe the activity template only — history stays</Text>
+          </View>
+          <TouchableOpacity
+            style={s.resetBtn}
+            onPress={() => setConfirmClearRoutine(true)}
+            disabled={clearingRoutine}
+          >
+            {clearingRoutine
+              ? <ActivityIndicator size="small" color={T.danger} />
+              : <Text style={[s.resetBtnText, { color: T.danger }]}>Clear</Text>
+            }
+          </TouchableOpacity>
+        </View>
         <View style={[s.row, s.dangerRow, { backgroundColor: T.surface }]}>
           <View style={s.rowInfo}>
             <Text style={[s.rowLabel, { color: T.danger }]}>Reset all data</Text>
@@ -337,6 +423,26 @@ export default function SettingsScreen() {
         T={T}
         onCancel={() => setConfirmReset(false)}
         onConfirm={confirmResetNow}
+      />
+
+      <ConfirmModal
+        visible={confirmClearToday}
+        title="Clear today's tasks?"
+        message="This deletes today's (and any already-created upcoming) tasks so Today starts fresh from your current Routine. Past history and Trends are not affected."
+        confirmLabel="Clear"
+        T={T}
+        onCancel={() => setConfirmClearToday(false)}
+        onConfirm={confirmClearTodayNow}
+      />
+
+      <ConfirmModal
+        visible={confirmClearRoutine}
+        title="Clear Routine?"
+        message="This removes all activities from your Routine template. Today's already-generated tasks and all past history are not affected."
+        confirmLabel="Clear"
+        T={T}
+        onCancel={() => setConfirmClearRoutine(false)}
+        onConfirm={confirmClearRoutineNow}
       />
 
       <ConfirmModal

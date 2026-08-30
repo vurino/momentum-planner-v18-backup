@@ -11,7 +11,7 @@ import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 import { scheduleTaskReminders } from "../../utils/notifications";
 import ConfirmModal from "../../components/ConfirmModal";
 
-const BASE = "";
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 const LIST_OPEN_KEY = "todayListOpen";
 
 interface Task {
@@ -279,29 +279,13 @@ function HeroCard({
 }
 
 function TaskRow({
-  task, isLast, onToggle, onSaveNote, T,
+  task, isLast, onSaveNote, T,
 }: {
   task: Task; isLast: boolean;
-  onToggle: (id: string, currentDone: boolean) => void;
   onSaveNote: (id: string, notes: string) => void;
   T: ThemeTokens;
 }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const whiteOpacity = useRef(new Animated.Value(task.done ? 1 : 0)).current;
   const [noteOpen, setNoteOpen] = useState(false);
-
-  const handlePress = () => {
-    if (!task.done) {
-      Animated.sequence([
-        Animated.timing(scale, { toValue: 1.3, duration: 120, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1,   duration: 120, useNativeDriver: true }),
-      ]).start();
-      Animated.timing(whiteOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-    } else {
-      Animated.timing(whiteOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start();
-    }
-    onToggle(task.id, task.done);
-  };
 
   const timeStr = getTaskTime(task);
   const duration = getTaskDuration(task);
@@ -311,21 +295,6 @@ function TaskRow({
       !isLast && { borderBottomWidth: 1, borderBottomColor: T.border },
     ]}>
       <View style={[styles.taskRow, task.done && styles.taskDone]}>
-        <TouchableOpacity
-          onPress={handlePress}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Animated.View style={[
-            styles.checkbox,
-            { borderColor: T.border },
-            task.done && { borderColor: T.t2, backgroundColor: T.checkedOverlay },
-            { transform: [{ scale }] },
-          ]}>
-            <Animated.Text style={[styles.checkmark, { color: T.t1, opacity: whiteOpacity }]}>
-              ✓
-            </Animated.Text>
-          </Animated.View>
-        </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={[
             styles.taskName,
@@ -466,16 +435,6 @@ export default function TodayScreen() {
     }
   };
 
-  const toggleTask = async (id: string, currentDone: boolean) => {
-    const body = currentDone
-      ? { completed: false }
-      : { completed: true, completed_at: nowISO(), skipped: false, stopped: false, auto_skipped: false };
-    setTasks(prev =>
-      prev.map(t => t.id === id ? { ...t, done: !currentDone, completed: !currentDone } : t)
-    );
-    await patchTask(id, body);
-  };
-
   const skipTask = (id: string, name: string) => {
     setConfirmSkip({ id, name });
   };
@@ -555,7 +514,6 @@ export default function TodayScreen() {
         key={task.id}
         task={task}
         isLast={i === listTasks.length - 1}
-        onToggle={toggleTask}
         onSaveNote={saveNote}
         T={T}
       />
@@ -647,7 +605,7 @@ export default function TodayScreen() {
 
         {collapsibleCount > 0 && (
           <TouchableOpacity style={styles.listHeaderRow} onPress={toggleList} activeOpacity={0.6}>
-            <Text style={[styles.listLabel, { color: T.t2, marginTop: 0, marginBottom: 0 }]}>Today's tasks</Text>
+            <Text style={[styles.listLabel, { color: T.t2, marginTop: 0, marginBottom: 0 }]}>Today&apos;s tasks</Text>
             <Text style={[styles.chevron, { color: T.t2 }]}>{listOpen ? "▲" : "▼"}</Text>
           </TouchableOpacity>
         )}
