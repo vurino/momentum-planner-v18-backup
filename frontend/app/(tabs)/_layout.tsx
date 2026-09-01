@@ -1,5 +1,6 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSimpleTheme } from "../../context/SimpleTheme";
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
@@ -18,6 +19,7 @@ const TABS: {
 
 export default function TabsLayout() {
   const { T } = useSimpleTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -27,8 +29,13 @@ export default function TabsLayout() {
           backgroundColor: T.surface,
           borderTopColor: T.border,
           borderTopWidth: 1,
-          height: 64,
-          paddingBottom: 10,
+          // insets.bottom pushes the actual tab icons/labels up above
+          // Android's system navigation bar (gesture pill or 3-button
+          // nav) instead of letting it overlap them, while the bar's own
+          // background still extends all the way down to the true screen
+          // edge so there's no color gap underneath.
+          height: 64 + insets.bottom,
+          paddingBottom: 10 + insets.bottom,
           paddingTop: 8,
         },
         tabBarActiveTintColor: T.orangeHi,

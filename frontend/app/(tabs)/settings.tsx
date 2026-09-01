@@ -5,6 +5,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import * as DocumentPicker from "expo-document-picker";
 import Toggle from "../../components/Toggle";
 import { useSimpleTheme, ThemeMode } from "../../context/SimpleTheme";
 import {
@@ -16,7 +19,7 @@ import {
 import { notify } from "../../utils/confirm";
 import ConfirmModal from "../../components/ConfirmModal";
 
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+const BASE = "";
 
 const APPEARANCE_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "light",  label: "Light" },
@@ -42,7 +45,7 @@ function todayStr() {
 // which gives the UTC date, not the device's local date. That's harmless
 // for its current use (an export filename) but would be a real bug for
 // "clear today": near midnight, it could delete the wrong day's tasks for
-// anyone not on UTC — the exact class of bug _heal_premature_skips was
+// anyone not on UTC (the exact class of bug _heal_premature_skips was
 // written to clean up on the backend.
 function localTodayStr() {
   const d = new Date();
@@ -179,54 +182,92 @@ export default function SettingsScreen() {
     try {
       const res = await fetch(`${BASE}/api/export`);
       const data = await res.json();
+      const json = JSON.stringify(data, null, 2);
+      const fileName = `momentum-export-${todayStr()}.json`;
 
       if (Platform.OS === "web") {
-        const json = JSON.stringify(data, null, 2);
         const blob = new Blob([json], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `momentum-export-${todayStr()}.json`;
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } else {
-        notify("Not available", "Data export is currently only available when using the app in a web browser.");
+        // Native has no "Downloads folder" the app can just drop a file
+        // into — write it to the app's own sandboxed storage, then hand it
+        // to the OS share sheet so the user can save it wherever they like
+        // (Drive, Files, email, etc.).
+        const fileUri = FileSystem.documentDirectory + fileName;
+        await FileSystem.writeAsStringAsync(fileUri, json, { encoding: FileSystem.EncodingType.UTF8 });
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: "application/json",
+            dialogTitle: "Save your Momentum Planner backup",
+          });
+        } else {
+          notify("Saved", `Backup saved as ${fileName}, but sharing isn't available on this device to move it elsewhere.`);
+        }
       }
-    } catch (e) {
-      notify("Export failed", "Could not export your data. Check your connection.");
+    } catch (e: any) {
+      notify("Export failed", e?.message || "Could not export your data. Check your connection.");
     } finally {
       setExporting(false);
     }
   };
 
-  const handleImportPress = () => {
-    if (Platform.OS !== "web") {
-      notify("Not available", "Data import is currently only available when using the app in a web browser.");
+  const parseBackupJson = (raw: string, fileName: string) => {
+    // Strip a leading byte-order-mark — some transfer paths (email, cloud
+    // storage, certain editors) silently prepend one to text files, and
+    // JSON.parse rejects it outright even though the rest of the content
+    // is otherwise valid JSON.
+    const bomStripped = raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
+    const cleaned = bomStripped.trim();
+    try {
+      const parsed = JSON.parse(cleaned);
+      const slots = Array.isArray(parsed.schedule_slots) ? parsed.schedule_slots : [];
+      const tasks = Array.isArray(parsed.daily_tasks) ? parsed.daily_tasks : [];
+      setPendingImport({ slots, tasks, fileName });
+    } catch (err: any) {
+      const preview = cleaned.slice(0, 80).replace(/\s+/g, " ");
+      notify(
+        "Invalid file",
+        `That doesn't look like a Momentum Planner backup file.\n\n${err?.message || "Parse error"}\nFile starts with: ${preview || "(empty)"}`
+      );
+    }
+  };
+
+  const handleImportPress = async () => {
+    if (Platform.OS === "web") {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "application/json";
+      input.onchange = (e: any) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => parseBackupJson(String(reader.result), file.name);
+        reader.readAsText(file);
+      };
+      input.click();
       return;
     }
 
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "application/json";
-    input.onchange = (e: any) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const parsed = JSON.parse(String(reader.result));
-          const slots = Array.isArray(parsed.schedule_slots) ? parsed.schedule_slots : [];
-          const tasks = Array.isArray(parsed.daily_tasks) ? parsed.daily_tasks : [];
-          setPendingImport({ slots, tasks, fileName: file.name });
-        } catch (err) {
-          notify("Invalid file", "That doesn't look like a Momentum Planner backup file.");
-        }
-      };
-      reader.readAsText(file);
-    };
-    input.click();
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/json",
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const content = await FileSystem.readAsStringAsync(asset.uri);
+      parseBackupJson(content, asset.name || "backup.json");
+    } catch (e) {
+      notify("Invalid file", "That doesn't look like a Momentum Planner backup file.");
+    }
   };
 
   const confirmImportNow = async () => {
@@ -358,7 +399,7 @@ export default function SettingsScreen() {
 
         <View style={[s.row, s.dangerRow, { backgroundColor: T.surface }]}>
           <View style={s.rowInfo}>
-            <Text style={[s.rowLabel, { color: T.danger }]}>Clear today&apos;s tasks</Text>
+            <Text style={[s.rowLabel, { color: T.danger }]}>Clear today's tasks</Text>
             <Text style={[s.rowSub, { color: T.t2 }]}>Wipe current/upcoming tasks only — history stays</Text>
           </View>
           <TouchableOpacity

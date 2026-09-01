@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSimpleTheme, ThemeTokens } from "../../context/SimpleTheme";
 import ConfirmModal from "../../components/ConfirmModal";
@@ -343,6 +344,7 @@ function SlotModal({
   totalSlots: number;
   T: ThemeTokens;
 }) {
+  const insets = useSafeAreaInsets();
   const isNew = !slot?.id;
   const [label, setLabel] = useState(slot?.label ?? "");
   const [time, setTime] = useState(slot?.start_time ?? "09:00");
@@ -552,7 +554,12 @@ function SlotModal({
             </TouchableOpacity>
           )}
 
-          <View style={{ height: 12 }} />
+          {/* Fixed 12px was fine on devices with no system nav bar, but on
+              edge-to-edge Android (or the iPhone home indicator) it left the
+              Save/Delete buttons sitting right at the true screen edge,
+              underneath the system's own nav area. Padding by the actual
+              bottom inset keeps them clear of it on every device. */}
+          <View style={{ height: 12 + insets.bottom }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
